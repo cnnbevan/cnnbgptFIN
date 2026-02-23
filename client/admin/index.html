@@ -114,7 +114,7 @@
             <button class="btn btn-default" onclick="loadReceivables()">刷新</button>
           </div>
           <table class="table">
-            <thead><tr><th>单号</th><th>客户</th><th>业务</th><th>应收</th><th>已收</th><th>剩余</th><th>到期日</th><th>状态</th><th>操作</th></tr></thead>
+            <thead><tr><th>单号</th><th>客户</th><th>业务</th><th>应收</th><th>已收</th><th>剩余</th><th>来源进度</th><th>策略</th><th>到期日</th><th>状态</th><th>操作</th></tr></thead>
             <tbody id="receivableTable"></tbody>
           </table>
         </div>
@@ -135,7 +135,7 @@
             <button class="btn btn-default" onclick="loadPayables()">刷新</button>
           </div>
           <table class="table">
-            <thead><tr><th>单号</th><th>供应商</th><th>类别</th><th>应付</th><th>已付</th><th>剩余</th><th>到期日</th><th>状态</th><th>操作</th></tr></thead>
+            <thead><tr><th>单号</th><th>供应商</th><th>类别</th><th>应付</th><th>已付</th><th>剩余</th><th>来源进度</th><th>策略</th><th>到期日</th><th>状态</th><th>操作</th></tr></thead>
             <tbody id="payableTable"></tbody>
           </table>
         </div>
@@ -366,6 +366,37 @@
       return m[type][value] || value;
     }
 
+    function progressText(type, status, ratio) {
+      const r = Number(ratio || 0).toFixed(0);
+      const ar = {
+        not_shipped: '未发货',
+        partial_shipped: '部分发货',
+        shipped: '已发货',
+        unknown: '未知'
+      };
+      const ap = {
+        not_received: '未收货',
+        partial_received: '部分收货',
+        received: '已收货',
+        unknown: '未知'
+      };
+      const text = type === 'receivable' ? (ar[status] || status || '未知') : (ap[status] || status || '未知');
+      return `${text} ${r}%`;
+    }
+
+    function strategyText(value) {
+      const m = {
+        pre_collection: '预收款阶段',
+        milestone_collection: '里程碑回款',
+        collection_due: '应催回款',
+        pre_payment: '预付款阶段',
+        milestone_payment: '里程碑付款',
+        payment_due: '应付结算',
+        standard: '标准策略'
+      };
+      return m[value] || value || '标准策略';
+    }
+
     async function request(path, options = {}) {
       const res = await fetch(`${API}${path}`, {
         ...options,
@@ -489,10 +520,12 @@
           return `<tr>
             <td>${x.bill_no}</td><td>${x.customer_name}</td><td>${x.product_name || '-'}</td>
             <td>${fmtMoney(x.amount_due)}</td><td>${fmtMoney(x.amount_received)}</td><td>${fmtMoney(remain)}</td>
+            <td>${progressText('receivable', x.source_progress_status, x.source_progress_ratio)}</td>
+            <td>${strategyText(x.status_strategy)}</td>
             <td>${x.due_date}</td><td><span class="status ${x.status}">${statusText('receivable', x.status)}</span></td>
             <td>${op}</td>
           </tr>`;
-        }).join('') || '<tr><td colspan="9">暂无数据</td></tr>';
+        }).join('') || '<tr><td colspan="11">暂无数据</td></tr>';
       } catch (error) {
         alert(error.message);
       }
@@ -576,10 +609,12 @@
           return `<tr>
             <td>${x.bill_no}</td><td>${x.vendor_name}</td><td>${x.category}</td>
             <td>${fmtMoney(x.amount_due)}</td><td>${fmtMoney(x.amount_paid)}</td><td>${fmtMoney(remain)}</td>
+            <td>${progressText('payable', x.source_progress_status, x.source_progress_ratio)}</td>
+            <td>${strategyText(x.status_strategy)}</td>
             <td>${x.due_date}</td><td><span class="status ${x.status}">${statusText('payable', x.status)}</span></td>
             <td>${op}</td>
           </tr>`;
-        }).join('') || '<tr><td colspan="9">暂无数据</td></tr>';
+        }).join('') || '<tr><td colspan="11">暂无数据</td></tr>';
       } catch (error) {
         alert(error.message);
       }

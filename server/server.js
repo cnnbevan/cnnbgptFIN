@@ -88,6 +88,68 @@ const addDays = (value, days) => {
   return d.toISOString().slice(0, 10);
 };
 
+const clampProgress = (value) => {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return 0;
+  if (n < 0) return 0;
+  if (n > 100) return 100;
+  return Math.round(n * 100) / 100;
+};
+
+const normalizeProgressStatus = (value) => String(value || 'unknown').trim().slice(0, 24) || 'unknown';
+const normalizeStatusStrategy = (value) => String(value || 'standard').trim().slice(0, 32) || 'standard';
+
+const receivableProgressText = (status, ratio) => {
+  const r = clampProgress(ratio);
+  if (status === 'shipped') return { status: 'shipped', ratio: 100 };
+  if (status === 'partial_shipped') return { status: 'partial_shipped', ratio: r > 0 ? r : 50 };
+  if (status === 'not_shipped') return { status: 'not_shipped', ratio: 0 };
+  return { status: 'unknown', ratio: r };
+};
+
+const payableProgressText = (status, ratio) => {
+  const r = clampProgress(ratio);
+  if (status === 'received') return { status: 'received', ratio: 100 };
+  if (status === 'partial_received') return { status: 'partial_received', ratio: r > 0 ? r : 50 };
+  if (status === 'not_received') return { status: 'not_received', ratio: 0 };
+  return { status: 'unknown', ratio: r };
+};
+
+const strategyFromReceivableProgress = (progressStatus) => {
+  if (progressStatus === 'not_shipped') return 'pre_collection';
+  if (progressStatus === 'partial_shipped') return 'milestone_collection';
+  if (progressStatus === 'shipped') return 'collection_due';
+  return 'standard';
+};
+
+const strategyFromPayableProgress = (progressStatus) => {
+  if (progressStatus === 'not_received') return 'pre_payment';
+  if (progressStatus === 'partial_received') return 'milestone_payment';
+  if (progressStatus === 'received') return 'payment_due';
+  return 'standard';
+};
+
+const crmProgressByOrderStatus = (status) => {
+  const s = String(status || '').toLowerCase();
+  if (s === 'delivered') return { progressStatus: 'shipped', progressRatio: 100, strategy: 'collection_due' };
+  if (s === 'paid') return { progressStatus: 'partial_shipped', progressRatio: 60, strategy: 'milestone_collection' };
+  return { progressStatus: 'not_shipped', progressRatio: 0, strategy: 'pre_collection' };
+};
+
+const erpSalesProgressByStatus = (status, ratio) => {
+  const s = String(status || '').toLowerCase();
+  if (s === 'shipped') return { progressStatus: 'shipped', progressRatio: 100 };
+  if (s === 'partial_shipped') return { progressStatus: 'partial_shipped', progressRatio: ratio > 0 ? ratio : 50 };
+  return { progressStatus: 'not_shipped', progressRatio: 0 };
+};
+
+const erpPurchaseProgressByStatus = (status, ratio) => {
+  const s = String(status || '').toLowerCase();
+  if (s === 'received') return { progressStatus: 'received', progressRatio: 100 };
+  if (s === 'partial_received') return { progressStatus: 'partial_received', progressRatio: ratio > 0 ? ratio : 50 };
+  return { progressStatus: 'not_received', progressRatio: 0 };
+};
+
 const calcReceivableStatus = (amountDue, amountReceived, dueDate) => {
   const due = toAmount(amountDue);
   const received = toAmount(amountReceived);
@@ -138,6 +200,70 @@ const refreshAgingStatus = async () => {
        ELSE 'open'
      END`
   );
+};
+
+let syncColumnsReady = false;
+
+const ensureColumnIfMissing = async (conn, tableName, columnName, alterSql) => {
+  const [rows] = await conn.execute(
+    `SELECT COUNT(*) AS c
+     FROM information_schema.columns
+     WHERE table_schema = ?
+       AND table_name = ?
+       AND column_name = ?`,
+    [dbConfig.database, tableName, columnName]
+  );
+  if (!Number(rows[0]?.c || 0)) {
+    await conn.execute(alterSql);
+  }
+};
+
+const ensureSyncProgressColumns = async () => {
+  if (syncColumnsReady) return;
+  const conn = await pool.getConnection();
+  try {
+    await ensureColumnIfMissing(
+      conn,
+      'fin_receivables',
+      'source_progress_ratio',
+      'ALTER TABLE fin_receivables ADD COLUMN source_progress_ratio DECIMAL(5,2) NOT NULL DEFAULT 0 AFTER status'
+    );
+    await ensureColumnIfMissing(
+      conn,
+      'fin_receivables',
+      'source_progress_status',
+      "ALTER TABLE fin_receivables ADD COLUMN source_progress_status VARCHAR(24) NOT NULL DEFAULT 'unknown' AFTER source_progress_ratio"
+    );
+    await ensureColumnIfMissing(
+      conn,
+      'fin_receivables',
+      'status_strategy',
+      "ALTER TABLE fin_receivables ADD COLUMN status_strategy VARCHAR(32) NOT NULL DEFAULT 'standard' AFTER source_progress_status"
+    );
+
+    await ensureColumnIfMissing(
+      conn,
+      'fin_payables',
+      'source_progress_ratio',
+      'ALTER TABLE fin_payables ADD COLUMN source_progress_ratio DECIMAL(5,2) NOT NULL DEFAULT 0 AFTER status'
+    );
+    await ensureColumnIfMissing(
+      conn,
+      'fin_payables',
+      'source_progress_status',
+      "ALTER TABLE fin_payables ADD COLUMN source_progress_status VARCHAR(24) NOT NULL DEFAULT 'unknown' AFTER source_progress_ratio"
+    );
+    await ensureColumnIfMissing(
+      conn,
+      'fin_payables',
+      'status_strategy',
+      "ALTER TABLE fin_payables ADD COLUMN status_strategy VARCHAR(32) NOT NULL DEFAULT 'standard' AFTER source_progress_status"
+    );
+
+    syncColumnsReady = true;
+  } finally {
+    conn.release();
+  }
 };
 
 const normalizeBillNo = (value, fallback) => {
@@ -241,10 +367,20 @@ const upsertReceivableBySource = async (conn, payload) => {
     const nextReceived = Math.max(toAmount(current.amount_received), receivedRaw);
     const nextDue = Math.max(dueRaw, nextReceived);
     const nextStatus = calcReceivableStatus(nextDue, nextReceived, dueDate);
+    const nextProgressRatio = payload.sourceProgressRatio === undefined
+      ? clampProgress(current.source_progress_ratio || 0)
+      : clampProgress(payload.sourceProgressRatio);
+    const nextProgressStatus = normalizeProgressStatus(
+      payload.sourceProgressStatus === undefined ? current.source_progress_status : payload.sourceProgressStatus
+    );
+    const nextStrategy = normalizeStatusStrategy(
+      payload.statusStrategy === undefined ? current.status_strategy : payload.statusStrategy
+    );
 
     await conn.execute(
       `UPDATE fin_receivables
-       SET customer_id = ?, biz_type = ?, product_name = ?, amount_due = ?, amount_received = ?, due_date = ?, status = ?, owner = ?, notes = ?
+       SET customer_id = ?, biz_type = ?, product_name = ?, amount_due = ?, amount_received = ?, due_date = ?, status = ?,
+           source_progress_ratio = ?, source_progress_status = ?, status_strategy = ?, owner = ?, notes = ?
        WHERE id = ?`,
       [
         nextCustomerId,
@@ -254,6 +390,9 @@ const upsertReceivableBySource = async (conn, payload) => {
         nextReceived,
         dueDate,
         nextStatus,
+        nextProgressRatio,
+        nextProgressStatus,
+        nextStrategy,
         payload.owner || null,
         payload.notes || null,
         Number(current.id)
@@ -265,11 +404,15 @@ const upsertReceivableBySource = async (conn, payload) => {
   const billNo = normalizeBillNo(payload.billNo, `AR-${Date.now().toString().slice(-8)}`);
   const amountReceived = Math.min(receivedRaw, dueRaw);
   const status = calcReceivableStatus(dueRaw, amountReceived, dueDate);
+  const progressRatio = clampProgress(payload.sourceProgressRatio || 0);
+  const progressStatus = normalizeProgressStatus(payload.sourceProgressStatus);
+  const statusStrategy = normalizeStatusStrategy(payload.statusStrategy);
 
   await conn.execute(
     `INSERT INTO fin_receivables
-      (bill_no, customer_id, biz_type, product_name, source_ref, amount_due, amount_received, due_date, status, owner, notes)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      (bill_no, customer_id, biz_type, product_name, source_ref, amount_due, amount_received, due_date, status,
+       source_progress_ratio, source_progress_status, status_strategy, owner, notes)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       billNo,
       Number(payload.customerId),
@@ -280,6 +423,9 @@ const upsertReceivableBySource = async (conn, payload) => {
       amountReceived,
       dueDate,
       status,
+      progressRatio,
+      progressStatus,
+      statusStrategy,
       payload.owner || null,
       payload.notes || null
     ]
@@ -304,10 +450,20 @@ const upsertPayableBySource = async (conn, payload) => {
     const nextPaid = Math.max(toAmount(current.amount_paid), paidRaw);
     const nextDue = Math.max(dueRaw, nextPaid);
     const nextStatus = calcPayableStatus(nextDue, nextPaid, dueDate);
+    const nextProgressRatio = payload.sourceProgressRatio === undefined
+      ? clampProgress(current.source_progress_ratio || 0)
+      : clampProgress(payload.sourceProgressRatio);
+    const nextProgressStatus = normalizeProgressStatus(
+      payload.sourceProgressStatus === undefined ? current.source_progress_status : payload.sourceProgressStatus
+    );
+    const nextStrategy = normalizeStatusStrategy(
+      payload.statusStrategy === undefined ? current.status_strategy : payload.statusStrategy
+    );
 
     await conn.execute(
       `UPDATE fin_payables
-       SET vendor_id = ?, category = ?, amount_due = ?, amount_paid = ?, due_date = ?, status = ?, owner = ?, notes = ?
+       SET vendor_id = ?, category = ?, amount_due = ?, amount_paid = ?, due_date = ?, status = ?,
+           source_progress_ratio = ?, source_progress_status = ?, status_strategy = ?, owner = ?, notes = ?
        WHERE id = ?`,
       [
         nextVendorId,
@@ -316,6 +472,9 @@ const upsertPayableBySource = async (conn, payload) => {
         nextPaid,
         dueDate,
         nextStatus,
+        nextProgressRatio,
+        nextProgressStatus,
+        nextStrategy,
         payload.owner || null,
         payload.notes || null,
         Number(current.id)
@@ -327,11 +486,15 @@ const upsertPayableBySource = async (conn, payload) => {
   const billNo = normalizeBillNo(payload.billNo, `AP-${Date.now().toString().slice(-8)}`);
   const amountPaid = Math.min(paidRaw, dueRaw);
   const status = calcPayableStatus(dueRaw, amountPaid, dueDate);
+  const progressRatio = clampProgress(payload.sourceProgressRatio || 0);
+  const progressStatus = normalizeProgressStatus(payload.sourceProgressStatus);
+  const statusStrategy = normalizeStatusStrategy(payload.statusStrategy);
 
   await conn.execute(
     `INSERT INTO fin_payables
-      (bill_no, vendor_id, category, source_ref, amount_due, amount_paid, due_date, status, owner, notes)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      (bill_no, vendor_id, category, source_ref, amount_due, amount_paid, due_date, status,
+       source_progress_ratio, source_progress_status, status_strategy, owner, notes)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       billNo,
       Number(payload.vendorId),
@@ -341,6 +504,9 @@ const upsertPayableBySource = async (conn, payload) => {
       amountPaid,
       dueDate,
       status,
+      progressRatio,
+      progressStatus,
+      statusStrategy,
       payload.owner || null,
       payload.notes || null
     ]
@@ -386,6 +552,7 @@ const syncFromCrmOrders = async (finConn) => {
       }
 
       const paid = ['paid', 'delivered'].includes(String(row.order_status || '').toLowerCase()) ? due : 0;
+      const crmProgress = crmProgressByOrderStatus(row.order_status);
       const result = await upsertReceivableBySource(finConn, {
         billNo: `AR-CRM-${row.id}`,
         sourceRef: `CRM-ORDER-${row.id}`,
@@ -395,6 +562,9 @@ const syncFromCrmOrders = async (finConn) => {
         amountDue: due,
         amountReceived: paid,
         dueDate: addDays(row.signed_at || row.created_at, 30),
+        sourceProgressStatus: crmProgress.progressStatus,
+        sourceProgressRatio: crmProgress.progressRatio,
+        statusStrategy: crmProgress.strategy,
         owner: 'CRM自动同步',
         notes: `来源CRM订单#${row.id}，状态：${row.order_status}`
       });
@@ -417,10 +587,27 @@ const syncFromErpSalesOrders = async (finConn) => {
     const [list] = await erpConn.execute(
       `SELECT s.id, s.so_no, s.total_amount, s.status AS order_status, s.order_date, s.expected_delivery_date,
               c.name AS customer_name, c.customer_type, c.contact_person, c.phone, c.industry,
-              e.name AS sales_owner_name
+              e.name AS sales_owner_name,
+              IFNULL(i.shipped_ratio, 0) AS shipped_ratio
        FROM erp_sales_orders s
        JOIN mdm_customers c ON c.id = s.customer_id
        LEFT JOIN mdm_employees e ON e.id = s.sales_owner_id
+       LEFT JOIN (
+         SELECT
+           sales_order_id,
+           CASE
+             WHEN SUM(CASE WHEN quantity > 0 THEN amount ELSE 0 END) > 0
+               THEN ROUND(
+                 SUM(CASE
+                   WHEN quantity > 0 THEN amount * LEAST(shipped_qty, quantity) / quantity
+                   ELSE 0
+                 END) / SUM(CASE WHEN quantity > 0 THEN amount ELSE 0 END) * 100, 2
+               )
+             ELSE 0
+           END AS shipped_ratio
+         FROM erp_sales_order_items
+         GROUP BY sales_order_id
+       ) i ON i.sales_order_id = s.id
        WHERE s.status <> 'cancelled'
        ORDER BY s.id ASC`
     );
@@ -448,6 +635,8 @@ const syncFromErpSalesOrders = async (finConn) => {
         continue;
       }
 
+      const progressSeed = erpSalesProgressByStatus(row.order_status, clampProgress(row.shipped_ratio || 0));
+      const progress = receivableProgressText(progressSeed.progressStatus, progressSeed.progressRatio);
       const result = await upsertReceivableBySource(finConn, {
         billNo: `AR-ERP-SO-${row.id}`,
         sourceRef: `ERP-SO-${row.id}`,
@@ -457,8 +646,11 @@ const syncFromErpSalesOrders = async (finConn) => {
         amountDue: due,
         amountReceived: 0,
         dueDate: addDays(row.order_date || row.expected_delivery_date, 30),
+        sourceProgressStatus: progress.status,
+        sourceProgressRatio: progress.ratio,
+        statusStrategy: strategyFromReceivableProgress(progress.status),
         owner: row.sales_owner_name || 'ERP自动同步',
-        notes: `来源ERP销售单${row.so_no || row.id}，状态：${row.order_status}`
+        notes: `来源ERP销售单${row.so_no || row.id}，状态：${row.order_status}，发货进度：${progress.ratio}%`
       });
       if (result.created) summary.created += 1;
       else if (result.updated) summary.updated += 1;
@@ -479,10 +671,27 @@ const syncFromErpPurchaseOrders = async (finConn) => {
     const [list] = await erpConn.execute(
       `SELECT po.id, po.po_no, po.total_amount, po.status AS order_status, po.order_date, po.expected_arrival_date,
               v.name AS vendor_name, v.category, v.contact_person, v.phone,
-              e.name AS purchaser_name
+              e.name AS purchaser_name,
+              IFNULL(i.received_ratio, 0) AS received_ratio
        FROM erp_purchase_orders po
        JOIN vendors v ON v.id = po.vendor_id
        LEFT JOIN mdm_employees e ON e.id = po.purchaser_id
+       LEFT JOIN (
+         SELECT
+           purchase_order_id,
+           CASE
+             WHEN SUM(CASE WHEN quantity > 0 THEN amount ELSE 0 END) > 0
+               THEN ROUND(
+                 SUM(CASE
+                   WHEN quantity > 0 THEN amount * LEAST(received_qty, quantity) / quantity
+                   ELSE 0
+                 END) / SUM(CASE WHEN quantity > 0 THEN amount ELSE 0 END) * 100, 2
+               )
+             ELSE 0
+           END AS received_ratio
+         FROM erp_purchase_order_items
+         GROUP BY purchase_order_id
+       ) i ON i.purchase_order_id = po.id
        WHERE po.status <> 'cancelled'
        ORDER BY po.id ASC`
     );
@@ -509,6 +718,8 @@ const syncFromErpPurchaseOrders = async (finConn) => {
         continue;
       }
 
+      const progressSeed = erpPurchaseProgressByStatus(row.order_status, clampProgress(row.received_ratio || 0));
+      const progress = payableProgressText(progressSeed.progressStatus, progressSeed.progressRatio);
       const result = await upsertPayableBySource(finConn, {
         billNo: `AP-ERP-PO-${row.id}`,
         sourceRef: `ERP-PO-${row.id}`,
@@ -517,8 +728,11 @@ const syncFromErpPurchaseOrders = async (finConn) => {
         amountDue: due,
         amountPaid: 0,
         dueDate: addDays(row.order_date || row.expected_arrival_date, 30),
+        sourceProgressStatus: progress.status,
+        sourceProgressRatio: progress.ratio,
+        statusStrategy: strategyFromPayableProgress(progress.status),
         owner: row.purchaser_name || 'ERP自动同步',
-        notes: `来源ERP采购单${row.po_no || row.id}，状态：${row.order_status}`
+        notes: `来源ERP采购单${row.po_no || row.id}，状态：${row.order_status}，收货进度：${progress.ratio}%`
       });
       if (result.created) summary.created += 1;
       else if (result.updated) summary.updated += 1;
@@ -535,6 +749,7 @@ const syncFromErpPurchaseOrders = async (finConn) => {
 
 const syncFinanceAuto = async (scope) => {
   const nextScope = ['all', 'crm', 'erp'].includes(String(scope || '').trim()) ? String(scope || '').trim() : 'all';
+  await ensureSyncProgressColumns();
   const finConn = await pool.getConnection();
   try {
     const results = [];
@@ -1470,6 +1685,7 @@ app.use((error, req, res, next) => {
 
 app.listen(PORT, '0.0.0.0', async () => {
   try {
+    await ensureSyncProgressColumns();
     await getOne('SELECT 1 AS ok');
     console.log(`🗄️ FIN 已连接 MySQL: ${dbConfig.host}:${dbConfig.port}/${dbConfig.database}`);
   } catch (error) {

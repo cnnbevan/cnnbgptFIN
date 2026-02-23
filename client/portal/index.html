@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>帕罗思AI事务所FIN - 财务前台</title>
+  <link rel="stylesheet" href="./ui-theme.css">
+  <style>
+    :root {
+      --accent: #0f7a6a;
+      --accent-strong: #0b5f53;
+      --sidebar-bg: #e7f7f3;
+      --sidebar-hover: #d4efe8;
+    }
+
+    .hero {
+      margin-bottom: 14px;
+      border-radius: 14px;
+      padding: 16px;
+      background: linear-gradient(135deg, rgba(15,122,106,0.12), rgba(42,108,246,0.08));
+      border: 1px solid #d9e8f0;
+    }
+
+    .money-positive { color: #1d8f63; font-weight: 700; }
+    .money-negative { color: #cb3d3d; font-weight: 700; }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="logo"><span class="logo-main">帕罗思AI事务所</span><span class="logo-sub">FIN 协同前台</span></div>
+      <div class="menu">
+        <div class="menu-item active" data-page="dashboard">📈 财务看板</div>
+        <div class="menu-item" data-page="transactions">🔁 收付流水</div>
+        <div class="menu-item" data-page="expense">🧾 报销申请</div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <div class="header">
+        <h1 id="pageTitle">财务看板</h1>
+        <div class="user-panel">
+          <div class="user-meta">
+            <span class="user-role">FIN 协同用户</span>
+            <span class="user-name">孙八</span>
+          </div>
+          <div class="user-avatar">孙</div>
+        </div>
+      </div>
+
+      <section id="page-dashboard">
+        <div class="hero">
+          <div style="font-size:20px;font-weight:700;margin-bottom:6px;">财务运行概览</div>
+          <div style="color:#4f6583;font-size:13px;">覆盖咨询、设计、研发、销售、实施与硬件采购等业务线的日常财务管理</div>
+        </div>
+        <div class="stats">
+          <div class="stat"><div class="label">应收余额</div><div class="value" id="sAr">-</div></div>
+          <div class="stat orange"><div class="label">应付余额</div><div class="value" id="sAp">-</div></div>
+          <div class="stat blue"><div class="label">本月净现金流</div><div class="value" id="sNet">-</div></div>
+          <div class="stat green"><div class="label">账户总余额</div><div class="value" id="sCash">-</div></div>
+        </div>
+      </section>
+
+      <section id="page-transactions" class="hidden">
+        <div class="card" style="margin-bottom:12px;">
+          <div class="card-title">最近收款</div>
+          <table class="table"><thead><tr><th>日期</th><th>应收单</th><th>客户</th><th>账户</th><th>金额</th></tr></thead><tbody id="receiptTable"></tbody></table>
+        </div>
+        <div class="card">
+          <div class="card-title">最近付款</div>
+          <table class="table"><thead><tr><th>日期</th><th>应付单</th><th>供应商</th><th>账户</th><th>金额</th></tr></thead><tbody id="paymentTable"></tbody></table>
+        </div>
+      </section>
+
+      <section id="page-expense" class="hidden">
+        <div class="card" style="margin-bottom:12px;">
+          <div class="card-title">提交报销申请</div>
+          <form onsubmit="submitExpense(event)">
+            <div class="modal-form-grid">
+              <div class="form-group"><label>报销单号</label><input id="expNo" placeholder="可留空自动生成"></div>
+              <div class="form-group"><label>部门 *</label><input id="expDept" required value="实施交付部"></div>
+              <div class="form-group"><label>申请人 *</label><input id="expApplicant" required value="孙八"></div>
+              <div class="form-group"><label>费用类别 *</label><select id="expCategory"><option value="travel">差旅</option><option value="equipment">设备</option><option value="meals">餐补</option><option value="office">办公</option><option value="other">其他</option></select></div>
+              <div class="form-group"><label>关联业务</label><input id="expBiz" placeholder="项目/订单"></div>
+              <div class="form-group"><label>金额 *</label><input id="expAmount" type="number" min="0" step="0.01" required></div>
+              <div class="form-group"><label>费用日期 *</label><input id="expDate" type="date" required></div>
+            </div>
+            <div class="modal-footer"><button class="btn btn-primary" type="submit">提交报销</button></div>
+          </form>
+        </div>
+
+        <div class="card">
+          <div class="card-title">最近报销申请</div>
+          <table class="table"><thead><tr><th>单号</th><th>部门</th><th>申请人</th><th>金额</th><th>状态</th></tr></thead><tbody id="expenseTable"></tbody></table>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="./config.js"></script>
+  <script>
+    const runtime = window.__FIN_CONFIG__ || {};
+    const apiPort = Number(runtime.API_PORT || 3301);
+    const API = runtime.API_BASE && runtime.API_BASE.trim() ? runtime.API_BASE.trim() : `${window.location.protocol}//${window.location.hostname}:${apiPort}/api`;
+
+    const statusText = { pending: '待审批', approved: '已审批', reimbursed: '已报销', rejected: '已驳回' };
+
+    document.addEventListener('DOMContentLoaded', async () => {
+      document.querySelectorAll('.menu-item').forEach((item) => item.addEventListener('click', () => go(item.dataset.page)));
+      document.getElementById('expDate').value = new Date().toISOString().slice(0, 10);
+      await bootstrap();
+    });
+
+    function fmtMoney(value) {
+      return `¥${Number(value || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    }
+
+    async function request(path, options = {}) {
+      const res = await fetch(`${API}${path}`, {
+        ...options,
+        headers: { 'Content-Type': 'application/json', ...(options.headers || {}) }
+      });
+      const data = await res.json();
+      if (!res.ok || data.code !== 0) throw new Error(data.message || '请求失败');
+      return data;
+    }
+
+    function go(page) {
+      document.querySelectorAll('.menu-item').forEach((m) => m.classList.remove('active'));
+      document.querySelector(`.menu-item[data-page="${page}"]`).classList.add('active');
+      document.querySelectorAll('[id^="page-"]').forEach((p) => p.classList.add('hidden'));
+      document.getElementById(`page-${page}`).classList.remove('hidden');
+      document.getElementById('pageTitle').textContent = page === 'dashboard' ? '财务看板' : (page === 'transactions' ? '收付流水' : '报销申请');
+
+      if (page === 'dashboard') loadDashboard();
+      if (page === 'transactions') loadTransactions();
+      if (page === 'expense') loadExpenses();
+    }
+
+    async function bootstrap() {
+      await Promise.all([loadDashboard(), loadTransactions(), loadExpenses()]);
+    }
+
+    async function loadDashboard() {
+      try {
+        const r = await request('/dashboard');
+        const d = r.data;
+        document.getElementById('sAr').textContent = fmtMoney(d.receivableOutstanding);
+        document.getElementById('sAp').textContent = fmtMoney(d.payableOutstanding);
+        document.getElementById('sNet').textContent = fmtMoney(d.monthNetCashflow);
+        document.getElementById('sNet').className = d.monthNetCashflow >= 0 ? 'value money-positive' : 'value money-negative';
+        document.getElementById('sCash').textContent = fmtMoney(d.cashBalance);
+      } catch (error) {
+        alert(error.message);
+      }
+    }
+
+    async function loadTransactions() {
+      try {
+        const [receipts, payments] = await Promise.all([request('/receipts'), request('/payments')]);
+        document.getElementById('receiptTable').innerHTML = receipts.data.map((x) => `<tr><td>${x.received_date}</td><td>${x.bill_no}</td><td>${x.customer_name}</td><td>${x.account_name}</td><td>${fmtMoney(x.received_amount)}</td></tr>`).join('') || '<tr><td colspan="5">暂无收款</td></tr>';
+        document.getElementById('paymentTable').innerHTML = payments.data.map((x) => `<tr><td>${x.paid_date}</td><td>${x.bill_no}</td><td>${x.vendor_name}</td><td>${x.account_name}</td><td>${fmtMoney(x.paid_amount)}</td></tr>`).join('') || '<tr><td colspan="5">暂无付款</td></tr>';
+      } catch (error) {
+        alert(error.message);
+      }
+    }
+
+    async function loadExpenses() {
+      try {
+        const r = await request('/expenses');
+        document.getElementById('expenseTable').innerHTML = r.data.slice(0, 20).map((x) => `<tr><td>${x.expense_no}</td><td>${x.department}</td><td>${x.applicant}</td><td>${fmtMoney(x.amount)}</td><td><span class="status ${x.status}">${statusText[x.status] || x.status}</span></td></tr>`).join('') || '<tr><td colspan="5">暂无报销</td></tr>';
+      } catch (error) {
+        alert(error.message);
+      }
+    }
+
+    async function submitExpense(e) {
+      e.preventDefault();
+      try {
+        await request('/expenses', {
+          method: 'POST',
+          body: JSON.stringify({
+            expenseNo: document.getElementById('expNo').value.trim(),
+            department: document.getElementById('expDept').value.trim(),
+            applicant: document.getElementById('expApplicant').value.trim(),
+            category: document.getElementById('expCategory').value,
+            relatedBusiness: document.getElementById('expBiz').value.trim(),
+            amount: Number(document.getElementById('expAmount').value),
+            expenseDate: document.getElementById('expDate').value
+          })
+        });
+        document.getElementById('expNo').value = '';
+        document.getElementById('expBiz').value = '';
+        document.getElementById('expAmount').value = '';
+        await Promise.all([loadExpenses(), loadDashboard()]);
+        alert('报销单已提交');
+      } catch (error) {
+        alert(error.message);
+      }
+    }
+  </script>
+</body>
+</html>

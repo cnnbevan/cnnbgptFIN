@@ -1,0 +1,879 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>帕罗思AI事务所FIN - 管理后台</title>
+  <link rel="stylesheet" href="./ui-theme.css">
+  <style>
+    :root {
+      --accent: #1976d2;
+      --accent-strong: #145ea8;
+      --sidebar-bg: #e8f4ff;
+      --sidebar-hover: #d5e9ff;
+    }
+
+    .money-negative { color: #cb3d3d; font-weight: 700; }
+    .money-positive { color: #1d8f63; font-weight: 700; }
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .split-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    @media (max-width: 960px) {
+      .grid-3 {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="logo"><span class="logo-main">帕罗思AI事务所</span><span class="logo-sub">FIN 管理后台</span></div>
+      <div class="menu">
+        <div class="menu-item active" data-page="dashboard">📊 总览</div>
+        <div class="menu-item" data-page="receivables">💵 应收管理</div>
+        <div class="menu-item" data-page="payables">💸 应付管理</div>
+        <div class="menu-item" data-page="expenses">🧾 报销管理</div>
+        <div class="menu-item" data-page="accounts">🏦 资金账户</div>
+        <div class="menu-item" data-page="master">🗂 基础资料</div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <div class="header">
+        <h1 id="pageTitle">总览</h1>
+        <div class="user-panel">
+          <div class="user-meta">
+            <span class="user-role">FIN 财务经理</span>
+            <span class="user-name">李七</span>
+          </div>
+          <div class="user-avatar">李</div>
+        </div>
+      </div>
+
+      <section id="page-dashboard">
+        <div class="card" style="margin-bottom:12px;">
+          <div class="card-title">
+            <span>业务联动同步</span>
+            <div class="split-actions">
+              <select id="syncScope" style="min-width:120px;">
+                <option value="all">CRM + ERP</option>
+                <option value="crm">仅 CRM</option>
+                <option value="erp">仅 ERP</option>
+              </select>
+              <button class="btn btn-primary" id="syncBtn" onclick="runFinanceSync()">同步生成应收/应付</button>
+            </div>
+          </div>
+          <div id="syncResult" style="font-size:12px;color:#5b7394;">可从 CRM 订单与 ERP 销售/采购单自动生成应收应付骨架。</div>
+        </div>
+
+        <div class="stats">
+          <div class="stat"><div class="label">应收余额</div><div class="value" id="sAr">-</div></div>
+          <div class="stat orange"><div class="label">应付余额</div><div class="value" id="sAp">-</div></div>
+          <div class="stat blue"><div class="label">本月净现金流</div><div class="value" id="sNet">-</div></div>
+          <div class="stat green"><div class="label">资金账户余额</div><div class="value" id="sCash">-</div></div>
+        </div>
+
+        <div class="grid-3">
+          <div class="card">
+            <div class="card-title">7天内应收到期</div>
+            <table class="table"><thead><tr><th>单号</th><th>客户</th><th>剩余</th><th>到期</th></tr></thead><tbody id="dueArTable"></tbody></table>
+          </div>
+          <div class="card">
+            <div class="card-title">7天内应付到期</div>
+            <table class="table"><thead><tr><th>单号</th><th>供应商</th><th>剩余</th><th>到期</th></tr></thead><tbody id="dueApTable"></tbody></table>
+          </div>
+          <div class="card">
+            <div class="card-title">最新报销单</div>
+            <table class="table"><thead><tr><th>单号</th><th>申请人</th><th>金额</th><th>状态</th></tr></thead><tbody id="latestExpTable"></tbody></table>
+          </div>
+        </div>
+      </section>
+
+      <section id="page-receivables" class="hidden">
+        <div class="card">
+          <div class="card-title">应收管理 <button class="btn btn-primary" onclick="openReceivableModal()">新增应收</button></div>
+          <div class="filters filters-compact">
+            <select id="arStatusFilter" onchange="loadReceivables()">
+              <option value="">全部状态</option>
+              <option value="open">待回款</option>
+              <option value="partial">部分回款</option>
+              <option value="overdue">逾期</option>
+              <option value="received">已回款</option>
+            </select>
+            <input id="arKeyword" placeholder="单号/客户/产品" onkeydown="if(event.key==='Enter')loadReceivables()">
+            <button class="btn btn-default" onclick="loadReceivables()">刷新</button>
+          </div>
+          <table class="table">
+            <thead><tr><th>单号</th><th>客户</th><th>业务</th><th>应收</th><th>已收</th><th>剩余</th><th>到期日</th><th>状态</th><th>操作</th></tr></thead>
+            <tbody id="receivableTable"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="page-payables" class="hidden">
+        <div class="card">
+          <div class="card-title">应付管理 <button class="btn btn-primary" onclick="openPayableModal()">新增应付</button></div>
+          <div class="filters filters-compact">
+            <select id="apStatusFilter" onchange="loadPayables()">
+              <option value="">全部状态</option>
+              <option value="open">待付款</option>
+              <option value="partial">部分付款</option>
+              <option value="overdue">逾期</option>
+              <option value="paid">已付款</option>
+            </select>
+            <input id="apKeyword" placeholder="单号/供应商/来源" onkeydown="if(event.key==='Enter')loadPayables()">
+            <button class="btn btn-default" onclick="loadPayables()">刷新</button>
+          </div>
+          <table class="table">
+            <thead><tr><th>单号</th><th>供应商</th><th>类别</th><th>应付</th><th>已付</th><th>剩余</th><th>到期日</th><th>状态</th><th>操作</th></tr></thead>
+            <tbody id="payableTable"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="page-expenses" class="hidden">
+        <div class="card">
+          <div class="card-title">报销管理 <button class="btn btn-primary" onclick="openExpenseModal()">新增报销</button></div>
+          <div class="filters filters-compact">
+            <select id="expStatusFilter" onchange="loadExpenses()">
+              <option value="">全部状态</option>
+              <option value="pending">待审批</option>
+              <option value="approved">已审批</option>
+              <option value="reimbursed">已报销</option>
+              <option value="rejected">已驳回</option>
+            </select>
+            <button class="btn btn-default" onclick="loadExpenses()">刷新</button>
+          </div>
+          <table class="table">
+            <thead><tr><th>单号</th><th>部门</th><th>申请人</th><th>类别</th><th>金额</th><th>费用日期</th><th>状态</th><th>操作</th></tr></thead>
+            <tbody id="expenseTable"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="page-accounts" class="hidden">
+        <div class="card">
+          <div class="card-title">资金账户 <button class="btn btn-primary" onclick="openAccountModal()">新增账户</button></div>
+          <table class="table">
+            <thead><tr><th>账户名称</th><th>银行</th><th>账号</th><th>币种</th><th>余额</th><th>状态</th><th>操作</th></tr></thead>
+            <tbody id="accountTable"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="page-master" class="hidden">
+        <div class="grid-2">
+          <div class="card">
+            <div class="card-title">客户资料 <button class="btn btn-primary" onclick="openCustomerModal()">新增客户</button></div>
+            <table class="table">
+              <thead><tr><th>客户名称</th><th>类型</th><th>联系人</th><th>电话</th></tr></thead>
+              <tbody id="customerTable"></tbody>
+            </table>
+          </div>
+          <div class="card">
+            <div class="card-title">供应商资料 <button class="btn btn-primary" onclick="openVendorModal()">新增供应商</button></div>
+            <table class="table">
+              <thead><tr><th>供应商名称</th><th>类别</th><th>联系人</th><th>电话</th></tr></thead>
+              <tbody id="vendorTable"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div class="modal" id="receivableModal">
+    <div class="modal-content">
+      <div class="modal-header"><h3>新增应收单</h3><span class="modal-close" onclick="closeModal('receivableModal')">&times;</span></div>
+      <form onsubmit="submitReceivable(event)">
+        <div class="modal-form-grid">
+          <div class="form-group"><label>应收单号 *</label><input id="arBillNo" required></div>
+          <div class="form-group"><label>客户 *</label><select id="arCustomer" required></select></div>
+          <div class="form-group"><label>业务类型 *</label><select id="arBiz"><option value="tob">ToB</option><option value="toc">ToC</option></select></div>
+          <div class="form-group"><label>产品/项目</label><input id="arProduct"></div>
+          <div class="form-group"><label>应收金额 *</label><input id="arAmount" type="number" min="0" step="0.01" required></div>
+          <div class="form-group"><label>到期日 *</label><input id="arDueDate" type="date" required></div>
+          <div class="form-group"><label>来源单据</label><input id="arSource"></div>
+          <div class="form-group"><label>负责人</label><input id="arOwner" value="李七"></div>
+        </div>
+        <div class="modal-footer"><button type="button" class="btn btn-default" onclick="closeModal('receivableModal')">取消</button><button class="btn btn-primary" type="submit">保存</button></div>
+      </form>
+    </div>
+  </div>
+
+  <div class="modal" id="receiptModal">
+    <div class="modal-content">
+      <div class="modal-header"><h3>登记收款</h3><span class="modal-close" onclick="closeModal('receiptModal')">&times;</span></div>
+      <form onsubmit="submitReceipt(event)">
+        <input type="hidden" id="receiptReceivableId">
+        <div class="form-group"><label>收款账户 *</label><select id="receiptAccount" required></select></div>
+        <div class="form-group"><label>收款金额 *</label><input id="receiptAmount" type="number" min="0" step="0.01" required></div>
+        <div class="form-group"><label>收款日期 *</label><input id="receiptDate" type="date" required></div>
+        <div class="form-group"><label>方式</label><select id="receiptMethod"><option value="bank_transfer">银行转账</option><option value="online">线上支付</option><option value="cash">现金</option></select></div>
+        <div class="modal-footer"><button type="button" class="btn btn-default" onclick="closeModal('receiptModal')">取消</button><button class="btn btn-primary" type="submit">登记</button></div>
+      </form>
+    </div>
+  </div>
+
+  <div class="modal" id="payableModal">
+    <div class="modal-content">
+      <div class="modal-header"><h3>新增应付单</h3><span class="modal-close" onclick="closeModal('payableModal')">&times;</span></div>
+      <form onsubmit="submitPayable(event)">
+        <div class="modal-form-grid">
+          <div class="form-group"><label>应付单号 *</label><input id="apBillNo" required></div>
+          <div class="form-group"><label>供应商 *</label><select id="apVendor" required></select></div>
+          <div class="form-group"><label>类别 *</label><select id="apCategory"><option value="hardware">硬件采购</option><option value="cloud">云服务</option><option value="implementation">实施外包</option><option value="consulting">咨询服务</option><option value="design">设计服务</option><option value="other">其他</option></select></div>
+          <div class="form-group"><label>来源单据</label><input id="apSource"></div>
+          <div class="form-group"><label>应付金额 *</label><input id="apAmount" type="number" min="0" step="0.01" required></div>
+          <div class="form-group"><label>到期日 *</label><input id="apDueDate" type="date" required></div>
+          <div class="form-group"><label>负责人</label><input id="apOwner" value="李七"></div>
+        </div>
+        <div class="modal-footer"><button type="button" class="btn btn-default" onclick="closeModal('payableModal')">取消</button><button class="btn btn-primary" type="submit">保存</button></div>
+      </form>
+    </div>
+  </div>
+
+  <div class="modal" id="paymentModal">
+    <div class="modal-content">
+      <div class="modal-header"><h3>登记付款</h3><span class="modal-close" onclick="closeModal('paymentModal')">&times;</span></div>
+      <form onsubmit="submitPayment(event)">
+        <input type="hidden" id="paymentPayableId">
+        <div class="form-group"><label>付款账户 *</label><select id="paymentAccount" required></select></div>
+        <div class="form-group"><label>付款金额 *</label><input id="paymentAmount" type="number" min="0" step="0.01" required></div>
+        <div class="form-group"><label>付款日期 *</label><input id="paymentDate" type="date" required></div>
+        <div class="form-group"><label>方式</label><select id="paymentMethod"><option value="bank_transfer">银行转账</option><option value="online">线上支付</option><option value="cash">现金</option></select></div>
+        <div class="modal-footer"><button type="button" class="btn btn-default" onclick="closeModal('paymentModal')">取消</button><button class="btn btn-primary" type="submit">登记</button></div>
+      </form>
+    </div>
+  </div>
+
+  <div class="modal" id="expenseModal">
+    <div class="modal-content">
+      <div class="modal-header"><h3>新增报销单</h3><span class="modal-close" onclick="closeModal('expenseModal')">&times;</span></div>
+      <form onsubmit="submitExpense(event)">
+        <div class="modal-form-grid">
+          <div class="form-group"><label>报销单号</label><input id="expNo" placeholder="可留空自动生成"></div>
+          <div class="form-group"><label>部门 *</label><input id="expDept" required value="实施交付部"></div>
+          <div class="form-group"><label>申请人 *</label><input id="expApplicant" required value="孙八"></div>
+          <div class="form-group"><label>费用类别 *</label><select id="expCategory"><option value="travel">差旅</option><option value="equipment">设备</option><option value="meals">餐补</option><option value="office">办公</option><option value="other">其他</option></select></div>
+          <div class="form-group"><label>关联业务</label><input id="expBiz" placeholder="项目/订单"></div>
+          <div class="form-group"><label>金额 *</label><input id="expAmount" type="number" min="0" step="0.01" required></div>
+          <div class="form-group"><label>费用日期 *</label><input id="expDate" type="date" required></div>
+        </div>
+        <div class="modal-footer"><button type="button" class="btn btn-default" onclick="closeModal('expenseModal')">取消</button><button class="btn btn-primary" type="submit">提交</button></div>
+      </form>
+    </div>
+  </div>
+
+  <div class="modal" id="reimburseModal">
+    <div class="modal-content">
+      <div class="modal-header"><h3>确认报销</h3><span class="modal-close" onclick="closeModal('reimburseModal')">&times;</span></div>
+      <form onsubmit="submitReimburse(event)">
+        <input type="hidden" id="reimburseExpenseId">
+        <div class="form-group"><label>付款账户 *</label><select id="reimburseAccount" required></select></div>
+        <div class="modal-footer"><button type="button" class="btn btn-default" onclick="closeModal('reimburseModal')">取消</button><button class="btn btn-primary" type="submit">确认报销</button></div>
+      </form>
+    </div>
+  </div>
+
+  <div class="modal" id="accountModal">
+    <div class="modal-content">
+      <div class="modal-header"><h3 id="accountModalTitle">新增资金账户</h3><span class="modal-close" onclick="closeModal('accountModal')">&times;</span></div>
+      <form onsubmit="submitAccount(event)">
+        <input type="hidden" id="accountId">
+        <div class="modal-form-grid">
+          <div class="form-group"><label>账户名称 *</label><input id="accountName" required></div>
+          <div class="form-group"><label>银行名称</label><input id="accountBank"></div>
+          <div class="form-group"><label>账号</label><input id="accountNo"></div>
+          <div class="form-group"><label>币种</label><input id="accountCurrency" value="CNY"></div>
+          <div class="form-group"><label>当前余额 *</label><input id="accountBalance" type="number" min="0" step="0.01" required></div>
+          <div class="form-group"><label>状态</label><select id="accountStatus"><option value="active">可用</option><option value="inactive">停用</option></select></div>
+        </div>
+        <div class="modal-footer"><button type="button" class="btn btn-default" onclick="closeModal('accountModal')">取消</button><button class="btn btn-primary" type="submit">保存</button></div>
+      </form>
+    </div>
+  </div>
+
+  <div class="modal" id="customerModal">
+    <div class="modal-content">
+      <div class="modal-header"><h3>新增客户</h3><span class="modal-close" onclick="closeModal('customerModal')">&times;</span></div>
+      <form onsubmit="submitCustomer(event)">
+        <div class="form-group"><label>客户名称 *</label><input id="customerName" required></div>
+        <div class="form-group"><label>客户类型</label><select id="customerType"><option value="tob">ToB</option><option value="toc">ToC</option></select></div>
+        <div class="form-group"><label>联系人</label><input id="customerContact"></div>
+        <div class="form-group"><label>电话</label><input id="customerPhone"></div>
+        <div class="form-group"><label>行业</label><input id="customerIndustry"></div>
+        <div class="modal-footer"><button type="button" class="btn btn-default" onclick="closeModal('customerModal')">取消</button><button class="btn btn-primary" type="submit">保存</button></div>
+      </form>
+    </div>
+  </div>
+
+  <div class="modal" id="vendorModal">
+    <div class="modal-content">
+      <div class="modal-header"><h3>新增供应商</h3><span class="modal-close" onclick="closeModal('vendorModal')">&times;</span></div>
+      <form onsubmit="submitVendor(event)">
+        <div class="form-group"><label>供应商名称 *</label><input id="vendorName" required></div>
+        <div class="form-group"><label>类别</label><select id="vendorCategory"><option value="hardware">硬件</option><option value="cloud">云服务</option><option value="implementation">实施</option><option value="consulting">咨询</option><option value="design">设计</option><option value="service">通用服务</option></select></div>
+        <div class="form-group"><label>联系人</label><input id="vendorContact"></div>
+        <div class="form-group"><label>电话</label><input id="vendorPhone"></div>
+        <div class="modal-footer"><button type="button" class="btn btn-default" onclick="closeModal('vendorModal')">取消</button><button class="btn btn-primary" type="submit">保存</button></div>
+      </form>
+    </div>
+  </div>
+
+  <script src="./config.js"></script>
+  <script>
+    const runtime = window.__FIN_CONFIG__ || {};
+    const apiPort = Number(runtime.API_PORT || 3301);
+    const API = runtime.API_BASE && runtime.API_BASE.trim() ? runtime.API_BASE.trim() : `${window.location.protocol}//${window.location.hostname}:${apiPort}/api`;
+
+    const state = {
+      customers: [],
+      vendors: [],
+      accounts: [],
+      receivables: [],
+      payables: [],
+      expenses: []
+    };
+
+    document.addEventListener('DOMContentLoaded', async () => {
+      document.querySelectorAll('.menu-item').forEach((item) => {
+        item.addEventListener('click', () => go(item.dataset.page));
+      });
+      await bootstrap();
+    });
+
+    function fmtMoney(value) {
+      return `¥${Number(value || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    }
+
+    function statusText(type, value) {
+      const m = {
+        receivable: { open: '待回款', partial: '部分回款', overdue: '逾期', received: '已回款' },
+        payable: { open: '待付款', partial: '部分付款', overdue: '逾期', paid: '已付款' },
+        expense: { pending: '待审批', approved: '已审批', reimbursed: '已报销', rejected: '已驳回' }
+      };
+      return m[type][value] || value;
+    }
+
+    async function request(path, options = {}) {
+      const res = await fetch(`${API}${path}`, {
+        ...options,
+        headers: { 'Content-Type': 'application/json', ...(options.headers || {}) }
+      });
+      const data = await res.json();
+      if (!res.ok || data.code !== 0) {
+        throw new Error(data.message || '请求失败');
+      }
+      return data;
+    }
+
+    function openModal(id) { document.getElementById(id).classList.add('active'); }
+    function closeModal(id) { document.getElementById(id).classList.remove('active'); }
+
+    function go(page) {
+      document.querySelectorAll('.menu-item').forEach((m) => m.classList.remove('active'));
+      document.querySelector(`.menu-item[data-page="${page}"]`).classList.add('active');
+      document.querySelectorAll('[id^="page-"]').forEach((p) => p.classList.add('hidden'));
+      document.getElementById(`page-${page}`).classList.remove('hidden');
+      const titles = {
+        dashboard: '总览', receivables: '应收管理', payables: '应付管理', expenses: '报销管理', accounts: '资金账户', master: '基础资料'
+      };
+      document.getElementById('pageTitle').textContent = titles[page] || '总览';
+
+      if (page === 'dashboard') loadDashboard();
+      if (page === 'receivables') loadReceivables();
+      if (page === 'payables') loadPayables();
+      if (page === 'expenses') loadExpenses();
+      if (page === 'accounts') loadAccounts();
+      if (page === 'master') loadMaster();
+    }
+
+    async function bootstrap() {
+      await refreshReferences();
+      await Promise.all([loadDashboard(), loadReceivables(), loadPayables(), loadExpenses(), loadAccounts(), loadMaster()]);
+    }
+
+    async function runFinanceSync() {
+      const scope = document.getElementById('syncScope').value;
+      const btn = document.getElementById('syncBtn');
+      const resultEl = document.getElementById('syncResult');
+      const oldText = btn.textContent;
+
+      btn.disabled = true;
+      btn.textContent = '同步中...';
+      try {
+        const resp = await request('/sync/finance-auto', {
+          method: 'POST',
+          body: JSON.stringify({ scope })
+        });
+        const d = resp.data;
+        const parts = d.results.map((x) => `${x.source}: 拉取${x.fetched} 新增${x.created} 更新${x.updated} 失败${x.failed}`);
+        resultEl.textContent = `${d.syncedAt} 同步完成。${parts.join('；')}`;
+        await refreshReferences();
+        await Promise.all([loadDashboard(), loadReceivables(), loadPayables(), loadAccounts(), loadMaster()]);
+      } catch (error) {
+        resultEl.textContent = `同步失败：${error.message}`;
+        alert(error.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = oldText;
+      }
+    }
+
+    async function refreshReferences() {
+      const [customers, vendors, accounts] = await Promise.all([
+        request('/customers'),
+        request('/vendors'),
+        request('/cash-accounts')
+      ]);
+      state.customers = customers.data;
+      state.vendors = vendors.data;
+      state.accounts = accounts.data;
+      fillSelects();
+    }
+
+    function fillSelects() {
+      const customerOpts = state.customers.map((x) => `<option value="${x.id}">${x.name}</option>`).join('');
+      const vendorOpts = state.vendors.map((x) => `<option value="${x.id}">${x.name}</option>`).join('');
+      const accountOpts = state.accounts.filter((x) => x.status === 'active').map((x) => `<option value="${x.id}">${x.account_name}（${fmtMoney(x.balance)}）</option>`).join('');
+
+      document.getElementById('arCustomer').innerHTML = customerOpts;
+      document.getElementById('apVendor').innerHTML = vendorOpts;
+      document.getElementById('receiptAccount').innerHTML = accountOpts;
+      document.getElementById('paymentAccount').innerHTML = accountOpts;
+      document.getElementById('reimburseAccount').innerHTML = accountOpts;
+    }
+
+    async function loadDashboard() {
+      try {
+        const r = await request('/dashboard');
+        const d = r.data;
+        document.getElementById('sAr').textContent = fmtMoney(d.receivableOutstanding);
+        document.getElementById('sAp').textContent = fmtMoney(d.payableOutstanding);
+        document.getElementById('sNet').textContent = fmtMoney(d.monthNetCashflow);
+        document.getElementById('sNet').className = d.monthNetCashflow >= 0 ? 'value money-positive' : 'value money-negative';
+        document.getElementById('sCash').textContent = fmtMoney(d.cashBalance);
+
+        document.getElementById('dueArTable').innerHTML = d.dueReceivables.map((x) => `<tr><td>${x.bill_no}</td><td>${x.customer_name}</td><td>${fmtMoney(x.remain)}</td><td>${x.due_date}</td></tr>`).join('') || '<tr><td colspan="4">暂无</td></tr>';
+        document.getElementById('dueApTable').innerHTML = d.duePayables.map((x) => `<tr><td>${x.bill_no}</td><td>${x.vendor_name}</td><td>${fmtMoney(x.remain)}</td><td>${x.due_date}</td></tr>`).join('') || '<tr><td colspan="4">暂无</td></tr>';
+        document.getElementById('latestExpTable').innerHTML = d.latestExpense.map((x) => `<tr><td>${x.expense_no}</td><td>${x.applicant}</td><td>${fmtMoney(x.amount)}</td><td>${statusText('expense', x.status)}</td></tr>`).join('') || '<tr><td colspan="4">暂无</td></tr>';
+      } catch (error) {
+        alert(error.message);
+      }
+    }
+
+    async function loadReceivables() {
+      try {
+        const q = new URLSearchParams();
+        const status = document.getElementById('arStatusFilter').value;
+        const keyword = document.getElementById('arKeyword').value.trim();
+        if (status) q.set('status', status);
+        if (keyword) q.set('keyword', keyword);
+
+        const r = await request(`/receivables${q.toString() ? `?${q.toString()}` : ''}`);
+        state.receivables = r.data;
+        document.getElementById('receivableTable').innerHTML = state.receivables.map((x) => {
+          const remain = Number(x.amount_due) - Number(x.amount_received);
+          const op = remain > 0 ? `<button class="btn btn-success" onclick="openReceiptModal(${x.id}, ${remain})">收款</button>` : '-';
+          return `<tr>
+            <td>${x.bill_no}</td><td>${x.customer_name}</td><td>${x.product_name || '-'}</td>
+            <td>${fmtMoney(x.amount_due)}</td><td>${fmtMoney(x.amount_received)}</td><td>${fmtMoney(remain)}</td>
+            <td>${x.due_date}</td><td><span class="status ${x.status}">${statusText('receivable', x.status)}</span></td>
+            <td>${op}</td>
+          </tr>`;
+        }).join('') || '<tr><td colspan="9">暂无数据</td></tr>';
+      } catch (error) {
+        alert(error.message);
+      }
+    }
+
+    function openReceivableModal() {
+      if (!state.customers.length) return alert('请先在基础资料中创建客户');
+      document.getElementById('arBillNo').value = `AR-${new Date().toISOString().slice(0,10).replace(/-/g,'')}-${Date.now().toString().slice(-3)}`;
+      document.getElementById('arAmount').value = '';
+      document.getElementById('arProduct').value = '';
+      document.getElementById('arSource').value = '';
+      document.getElementById('arDueDate').value = '';
+      openModal('receivableModal');
+    }
+
+    async function submitReceivable(e) {
+      e.preventDefault();
+      try {
+        await request('/receivables', {
+          method: 'POST',
+          body: JSON.stringify({
+            billNo: document.getElementById('arBillNo').value.trim(),
+            customerId: Number(document.getElementById('arCustomer').value),
+            bizType: document.getElementById('arBiz').value,
+            productName: document.getElementById('arProduct').value.trim(),
+            sourceRef: document.getElementById('arSource').value.trim(),
+            amountDue: Number(document.getElementById('arAmount').value),
+            dueDate: document.getElementById('arDueDate').value,
+            owner: document.getElementById('arOwner').value.trim()
+          })
+        });
+        closeModal('receivableModal');
+        await Promise.all([loadReceivables(), loadDashboard()]);
+      } catch (error) {
+        alert(error.message);
+      }
+    }
+
+    function openReceiptModal(receivableId, remain) {
+      if (!state.accounts.filter((x) => x.status === 'active').length) return alert('请先配置可用资金账户');
+      document.getElementById('receiptReceivableId').value = receivableId;
+      document.getElementById('receiptAmount').value = Number(remain).toFixed(2);
+      document.getElementById('receiptDate').value = new Date().toISOString().slice(0, 10);
+      openModal('receiptModal');
+    }
+
+    async function submitReceipt(e) {
+      e.preventDefault();
+      try {
+        const id = Number(document.getElementById('receiptReceivableId').value);
+        await request(`/receivables/${id}/receipts`, {
+          method: 'POST',
+          body: JSON.stringify({
+            accountId: Number(document.getElementById('receiptAccount').value),
+            receivedAmount: Number(document.getElementById('receiptAmount').value),
+            receivedDate: document.getElementById('receiptDate').value,
+            method: document.getElementById('receiptMethod').value
+          })
+        });
+        closeModal('receiptModal');
+        await refreshReferences();
+        await Promise.all([loadReceivables(), loadDashboard(), loadAccounts()]);
+      } catch (error) {
+        alert(error.message);
+      }
+    }
+
+    async function loadPayables() {
+      try {
+        const q = new URLSearchParams();
+        const status = document.getElementById('apStatusFilter').value;
+        const keyword = document.getElementById('apKeyword').value.trim();
+        if (status) q.set('status', status);
+        if (keyword) q.set('keyword', keyword);
+
+        const r = await request(`/payables${q.toString() ? `?${q.toString()}` : ''}`);
+        state.payables = r.data;
+        document.getElementById('payableTable').innerHTML = state.payables.map((x) => {
+          const remain = Number(x.amount_due) - Number(x.amount_paid);
+          const op = remain > 0 ? `<button class="btn btn-danger" onclick="openPaymentModal(${x.id}, ${remain})">付款</button>` : '-';
+          return `<tr>
+            <td>${x.bill_no}</td><td>${x.vendor_name}</td><td>${x.category}</td>
+            <td>${fmtMoney(x.amount_due)}</td><td>${fmtMoney(x.amount_paid)}</td><td>${fmtMoney(remain)}</td>
+            <td>${x.due_date}</td><td><span class="status ${x.status}">${statusText('payable', x.status)}</span></td>
+            <td>${op}</td>
+          </tr>`;
+        }).join('') || '<tr><td colspan="9">暂无数据</td></tr>';
+      } catch (error) {
+        alert(error.message);
+      }
+    }
+
+    function openPayableModal() {
+      if (!state.vendors.length) return alert('请先在基础资料中创建供应商');
+      document.getElementById('apBillNo').value = `AP-${new Date().toISOString().slice(0,10).replace(/-/g,'')}-${Date.now().toString().slice(-3)}`;
+      document.getElementById('apAmount').value = '';
+      document.getElementById('apSource').value = '';
+      document.getElementById('apDueDate').value = '';
+      openModal('payableModal');
+    }
+
+    async function submitPayable(e) {
+      e.preventDefault();
+      try {
+        await request('/payables', {
+          method: 'POST',
+          body: JSON.stringify({
+            billNo: document.getElementById('apBillNo').value.trim(),
+            vendorId: Number(document.getElementById('apVendor').value),
+            category: document.getElementById('apCategory').value,
+            sourceRef: document.getElementById('apSource').value.trim(),
+            amountDue: Number(document.getElementById('apAmount').value),
+            dueDate: document.getElementById('apDueDate').value,
+            owner: document.getElementById('apOwner').value.trim()
+          })
+        });
+        closeModal('payableModal');
+        await Promise.all([loadPayables(), loadDashboard()]);
+      } catch (error) {
+        alert(error.message);
+      }
+    }
+
+    function openPaymentModal(payableId, remain) {
+      if (!state.accounts.filter((x) => x.status === 'active').length) return alert('请先配置可用资金账户');
+      document.getElementById('paymentPayableId').value = payableId;
+      document.getElementById('paymentAmount').value = Number(remain).toFixed(2);
+      document.getElementById('paymentDate').value = new Date().toISOString().slice(0, 10);
+      openModal('paymentModal');
+    }
+
+    async function submitPayment(e) {
+      e.preventDefault();
+      try {
+        const id = Number(document.getElementById('paymentPayableId').value);
+        await request(`/payables/${id}/payments`, {
+          method: 'POST',
+          body: JSON.stringify({
+            accountId: Number(document.getElementById('paymentAccount').value),
+            paidAmount: Number(document.getElementById('paymentAmount').value),
+            paidDate: document.getElementById('paymentDate').value,
+            method: document.getElementById('paymentMethod').value
+          })
+        });
+        closeModal('paymentModal');
+        await refreshReferences();
+        await Promise.all([loadPayables(), loadDashboard(), loadAccounts()]);
+      } catch (error) {
+        alert(error.message);
+      }
+    }
+
+    async function loadExpenses() {
+      try {
+        const status = document.getElementById('expStatusFilter').value;
+        const q = new URLSearchParams();
+        if (status) q.set('status', status);
+
+        const r = await request(`/expenses${q.toString() ? `?${q.toString()}` : ''}`);
+        state.expenses = r.data;
+        document.getElementById('expenseTable').innerHTML = state.expenses.map((x) => {
+          const actions = [];
+          if (x.status === 'pending') {
+            actions.push(`<button class="btn btn-success" onclick="changeExpenseStatus(${x.id}, 'approved')">通过</button>`);
+            actions.push(`<button class="btn btn-danger" onclick="changeExpenseStatus(${x.id}, 'rejected')">驳回</button>`);
+          }
+          if (x.status === 'approved') {
+            actions.push(`<button class="btn btn-primary" onclick="openReimburseModal(${x.id})">报销</button>`);
+          }
+          return `<tr>
+            <td>${x.expense_no}</td><td>${x.department}</td><td>${x.applicant}</td><td>${x.category}</td>
+            <td>${fmtMoney(x.amount)}</td><td>${x.expense_date}</td>
+            <td><span class="status ${x.status}">${statusText('expense', x.status)}</span></td>
+            <td><div class="split-actions">${actions.join('') || '-'}</div></td>
+          </tr>`;
+        }).join('') || '<tr><td colspan="8">暂无数据</td></tr>';
+      } catch (error) {
+        alert(error.message);
+      }
+    }
+
+    function openExpenseModal() {
+      document.getElementById('expNo').value = '';
+      document.getElementById('expAmount').value = '';
+      document.getElementById('expDate').value = new Date().toISOString().slice(0, 10);
+      document.getElementById('expBiz').value = '';
+      openModal('expenseModal');
+    }
+
+    async function submitExpense(e) {
+      e.preventDefault();
+      try {
+        await request('/expenses', {
+          method: 'POST',
+          body: JSON.stringify({
+            expenseNo: document.getElementById('expNo').value.trim(),
+            department: document.getElementById('expDept').value.trim(),
+            applicant: document.getElementById('expApplicant').value.trim(),
+            category: document.getElementById('expCategory').value,
+            relatedBusiness: document.getElementById('expBiz').value.trim(),
+            amount: Number(document.getElementById('expAmount').value),
+            expenseDate: document.getElementById('expDate').value
+          })
+        });
+        closeModal('expenseModal');
+        await Promise.all([loadExpenses(), loadDashboard()]);
+      } catch (error) {
+        alert(error.message);
+      }
+    }
+
+    async function changeExpenseStatus(id, status) {
+      try {
+        await request(`/expenses/${id}/status`, {
+          method: 'PUT',
+          body: JSON.stringify({ status })
+        });
+        await Promise.all([loadExpenses(), loadDashboard()]);
+      } catch (error) {
+        alert(error.message);
+      }
+    }
+
+    function openReimburseModal(expenseId) {
+      if (!state.accounts.filter((x) => x.status === 'active').length) return alert('请先配置可用资金账户');
+      document.getElementById('reimburseExpenseId').value = expenseId;
+      openModal('reimburseModal');
+    }
+
+    async function submitReimburse(e) {
+      e.preventDefault();
+      try {
+        const id = Number(document.getElementById('reimburseExpenseId').value);
+        await request(`/expenses/${id}/status`, {
+          method: 'PUT',
+          body: JSON.stringify({ status: 'reimbursed', paymentAccountId: Number(document.getElementById('reimburseAccount').value) })
+        });
+        closeModal('reimburseModal');
+        await refreshReferences();
+        await Promise.all([loadExpenses(), loadDashboard(), loadAccounts()]);
+      } catch (error) {
+        alert(error.message);
+      }
+    }
+
+    async function loadAccounts() {
+      try {
+        const r = await request('/cash-accounts');
+        state.accounts = r.data;
+        fillSelects();
+        document.getElementById('accountTable').innerHTML = state.accounts.map((x) => `
+          <tr>
+            <td>${x.account_name}</td>
+            <td>${x.bank_name || '-'}</td>
+            <td>${x.account_no || '-'}</td>
+            <td>${x.currency}</td>
+            <td>${fmtMoney(x.balance)}</td>
+            <td><span class="status ${x.status}">${x.status === 'active' ? '可用' : '停用'}</span></td>
+            <td><button class="btn btn-primary" onclick="editAccountById(${x.id})">编辑</button></td>
+          </tr>
+        `).join('');
+      } catch (error) {
+        alert(error.message);
+      }
+    }
+
+    function editAccountById(id) {
+      const acc = state.accounts.find((x) => Number(x.id) === Number(id));
+      if (!acc) return;
+      openAccountModal(acc);
+    }
+
+    function openAccountModal(acc = null) {
+      const isEdit = !!(acc && acc.id);
+      document.getElementById('accountModalTitle').textContent = isEdit ? '编辑资金账户' : '新增资金账户';
+      document.getElementById('accountId').value = isEdit ? acc.id : '';
+      document.getElementById('accountName').value = isEdit ? (acc.account_name || '') : '';
+      document.getElementById('accountBank').value = isEdit ? (acc.bank_name || '') : '';
+      document.getElementById('accountNo').value = isEdit ? (acc.account_no || '') : '';
+      document.getElementById('accountCurrency').value = isEdit ? (acc.currency || 'CNY') : 'CNY';
+      document.getElementById('accountBalance').value = isEdit ? Number(acc.balance || 0) : 0;
+      document.getElementById('accountStatus').value = isEdit ? (acc.status || 'active') : 'active';
+      openModal('accountModal');
+    }
+
+    async function submitAccount(e) {
+      e.preventDefault();
+      try {
+        const id = document.getElementById('accountId').value.trim();
+        const payload = {
+          accountName: document.getElementById('accountName').value.trim(),
+          bankName: document.getElementById('accountBank').value.trim(),
+          accountNo: document.getElementById('accountNo').value.trim(),
+          currency: document.getElementById('accountCurrency').value.trim(),
+          balance: Number(document.getElementById('accountBalance').value),
+          status: document.getElementById('accountStatus').value
+        };
+
+        if (id) {
+          await request(`/cash-accounts/${id}`, { method: 'PUT', body: JSON.stringify(payload) });
+        } else {
+          await request('/cash-accounts', { method: 'POST', body: JSON.stringify(payload) });
+        }
+
+        closeModal('accountModal');
+        await refreshReferences();
+        await Promise.all([loadAccounts(), loadDashboard()]);
+      } catch (error) {
+        alert(error.message);
+      }
+    }
+
+    async function loadMaster() {
+      try {
+        const [c, v] = await Promise.all([request('/customers'), request('/vendors')]);
+        state.customers = c.data;
+        state.vendors = v.data;
+        fillSelects();
+
+        document.getElementById('customerTable').innerHTML = state.customers.map((x) => `<tr><td>${x.name}</td><td>${x.customer_type.toUpperCase()}</td><td>${x.contact_person || '-'}</td><td>${x.phone || '-'}</td></tr>`).join('') || '<tr><td colspan="4">暂无客户</td></tr>';
+        document.getElementById('vendorTable').innerHTML = state.vendors.map((x) => `<tr><td>${x.name}</td><td>${x.category}</td><td>${x.contact_person || '-'}</td><td>${x.phone || '-'}</td></tr>`).join('') || '<tr><td colspan="4">暂无供应商</td></tr>';
+      } catch (error) {
+        alert(error.message);
+      }
+    }
+
+    function openCustomerModal() {
+      document.getElementById('customerName').value = '';
+      document.getElementById('customerContact').value = '';
+      document.getElementById('customerPhone').value = '';
+      document.getElementById('customerIndustry').value = '';
+      openModal('customerModal');
+    }
+
+    async function submitCustomer(e) {
+      e.preventDefault();
+      try {
+        await request('/customers', {
+          method: 'POST',
+          body: JSON.stringify({
+            name: document.getElementById('customerName').value.trim(),
+            customerType: document.getElementById('customerType').value,
+            contactPerson: document.getElementById('customerContact').value.trim(),
+            phone: document.getElementById('customerPhone').value.trim(),
+            industry: document.getElementById('customerIndustry').value.trim()
+          })
+        });
+        closeModal('customerModal');
+        await refreshReferences();
+        await Promise.all([loadMaster(), loadReceivables()]);
+      } catch (error) {
+        alert(error.message);
+      }
+    }
+
+    function openVendorModal() {
+      document.getElementById('vendorName').value = '';
+      document.getElementById('vendorContact').value = '';
+      document.getElementById('vendorPhone').value = '';
+      openModal('vendorModal');
+    }
+
+    async function submitVendor(e) {
+      e.preventDefault();
+      try {
+        await request('/vendors', {
+          method: 'POST',
+          body: JSON.stringify({
+            name: document.getElementById('vendorName').value.trim(),
+            category: document.getElementById('vendorCategory').value,
+            contactPerson: document.getElementById('vendorContact').value.trim(),
+            phone: document.getElementById('vendorPhone').value.trim()
+          })
+        });
+        closeModal('vendorModal');
+        await refreshReferences();
+        await Promise.all([loadMaster(), loadPayables()]);
+      } catch (error) {
+        alert(error.message);
+      }
+    }
+  </script>
+</body>
+</html>

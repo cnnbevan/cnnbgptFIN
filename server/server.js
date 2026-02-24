@@ -111,8 +111,315 @@ const clampProgress = (value) => {
 
 const normalizeProgressStatus = (value) => String(value || 'unknown').trim().slice(0, 24) || 'unknown';
 const normalizeStatusStrategy = (value) => String(value || 'standard').trim().slice(0, 32) || 'standard';
+const toBoolFlag = (value) => {
+  if (value === true || value === 1) return true;
+  if (typeof value === 'string') {
+    const s = value.trim().toLowerCase();
+    return s === '1' || s === 'true';
+  }
+  return false;
+};
 
-const requirePortalAuth = (req, res, next) => {
+const normalizeAuthStatus = (value, fallback = 'active') => {
+  const s = String(value || '').trim().toLowerCase();
+  if (s === 'active' || s === 'disabled') return s;
+  return fallback;
+};
+
+const parseIdArray = (value) => {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value.map((x) => Number(x)).filter((x) => Number.isInteger(x) && x > 0))];
+};
+
+const parseCodeArray = (value) => {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value.map((x) => String(x || '').trim()).filter(Boolean))];
+};
+
+const FIN_PERMISSION_SEEDS = [
+  { code: 'fin.dashboard.view', name: '查看总览', moduleCode: 'dashboard', description: '查看FIN总览看板' },
+  { code: 'fin.receivable.manage', name: '应收管理', moduleCode: 'receivables', description: '维护应收与回款登记' },
+  { code: 'fin.payable.manage', name: '应付管理', moduleCode: 'payables', description: '维护应付与付款登记' },
+  { code: 'fin.budget.manage', name: '预算管理', moduleCode: 'budgets', description: '维护预算与执行状态' },
+  { code: 'fin.cost.manage', name: '成本管理', moduleCode: 'costs', description: '维护成本单与成本付款' },
+  { code: 'fin.salary.manage', name: '薪资管理', moduleCode: 'salaries', description: '维护薪资单与发薪记录' },
+  { code: 'fin.ai-expense.manage', name: 'AI费用管理', moduleCode: 'ai-expenses', description: '维护AI费用与付款记录' },
+  { code: 'fin.account.manage', name: '资金账户管理', moduleCode: 'accounts', description: '维护资金账户信息' },
+  { code: 'fin.master.manage', name: '基础资料管理', moduleCode: 'master', description: '维护客户与供应商资料' },
+  { code: 'fin.sync.manage', name: '业务联动同步', moduleCode: 'sync', description: '执行跨系统同步' },
+  { code: 'fin.user.manage', name: '用户管理', moduleCode: 'authz', description: '管理FIN用户与角色分配' },
+  { code: 'fin.permission.manage', name: '权限管理', moduleCode: 'authz', description: '管理FIN角色权限' }
+];
+
+const ensureAuthzTables = async () => {
+  await run(`
+    CREATE TABLE IF NOT EXISTS fin_auth_users (
+      id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+      portal_user_id BIGINT NOT NULL,
+      username VARCHAR(64) NOT NULL,
+      display_name VARCHAR(64) NOT NULL,
+      status ENUM('active', 'disabled') NOT NULL DEFAULT 'active',
+      remarks VARCHAR(255) NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      UNIQUE KEY uk_fin_auth_users_portal_user (portal_user_id),
+      UNIQUE KEY uk_fin_auth_users_username (username)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+
+  await run(`
+    CREATE TABLE IF NOT EXISTS fin_auth_roles (
+      id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+      code VARCHAR(64) NOT NULL,
+      name VARCHAR(64) NOT NULL,
+      description VARCHAR(255) NULL,
+      status ENUM('active', 'disabled') NOT NULL DEFAULT 'active',
+      is_builtin TINYINT(1) NOT NULL DEFAULT 0,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      UNIQUE KEY uk_fin_auth_roles_code (code)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+
+  await run(`
+    CREATE TABLE IF NOT EXISTS fin_auth_permissions (
+      id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+      code VARCHAR(64) NOT NULL,
+      name VARCHAR(64) NOT NULL,
+      module_code VARCHAR(64) NOT NULL,
+      description VARCHAR(255) NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      UNIQUE KEY uk_fin_auth_permissions_code (code)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+
+  await run(`
+    CREATE TABLE IF NOT EXISTS fin_auth_role_permissions (
+      id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+      role_id INT UNSIGNED NOT NULL,
+      permission_id INT UNSIGNED NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      UNIQUE KEY uk_fin_auth_role_permission (role_id, permission_id),
+      CONSTRAINT fk_fin_auth_role_permissions_role
+        FOREIGN KEY (role_id) REFERENCES fin_auth_roles(id)
+        ON DELETE CASCADE ON UPDATE CASCADE,
+      CONSTRAINT fk_fin_auth_role_permissions_permission
+        FOREIGN KEY (permission_id) REFERENCES fin_auth_permissions(id)
+        ON DELETE CASCADE ON UPDATE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+
+  await run(`
+    CREATE TABLE IF NOT EXISTS fin_auth_user_roles (
+      id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+      user_id INT UNSIGNED NOT NULL,
+      role_id INT UNSIGNED NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      UNIQUE KEY uk_fin_auth_user_role (user_id, role_id),
+      CONSTRAINT fk_fin_auth_user_roles_user
+        FOREIGN KEY (user_id) REFERENCES fin_auth_users(id)
+        ON DELETE CASCADE ON UPDATE CASCADE,
+      CONSTRAINT fk_fin_auth_user_roles_role
+        FOREIGN KEY (role_id) REFERENCES fin_auth_roles(id)
+        ON DELETE CASCADE ON UPDATE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+
+  for (const permission of FIN_PERMISSION_SEEDS) {
+    await run(
+      `INSERT IGNORE INTO fin_auth_permissions (code, name, module_code, description)
+       VALUES (?, ?, ?, ?)`,
+      [permission.code, permission.name, permission.moduleCode, permission.description || null]
+    );
+  }
+
+  await run(
+    `INSERT IGNORE INTO fin_auth_roles (code, name, description, status, is_builtin)
+     VALUES ('fin_admin', 'FIN系统管理员', '默认管理员角色，拥有全部FIN管理权限', 'active', 1)`
+  );
+
+  await run(`
+    INSERT IGNORE INTO fin_auth_role_permissions (role_id, permission_id)
+    SELECT r.id, p.id
+    FROM fin_auth_roles r
+    JOIN fin_auth_permissions p ON 1 = 1
+    WHERE r.code = 'fin_admin'
+  `);
+};
+
+const getAuthzUserWithPermissions = async (portalUserId) => {
+  const user = await getOne(
+    `SELECT id, portal_user_id, username, display_name, status
+     FROM fin_auth_users
+     WHERE portal_user_id = ?
+     LIMIT 1`,
+    [Number(portalUserId)]
+  );
+  if (!user) return { authzUser: null, permissionCodes: [] };
+
+  const rows = await getAll(
+    `SELECT DISTINCT p.code
+     FROM fin_auth_user_roles ur
+     JOIN fin_auth_roles r ON r.id = ur.role_id AND r.status = 'active'
+     JOIN fin_auth_role_permissions rp ON rp.role_id = r.id
+     JOIN fin_auth_permissions p ON p.id = rp.permission_id
+     WHERE ur.user_id = ?`,
+    [Number(user.id)]
+  );
+
+  return { authzUser: user, permissionCodes: rows.map((x) => x.code) };
+};
+
+const requireAnyAuthzPermission = (codes) => asyncHandler(async (req, res, next) => {
+  if (toBoolFlag(req.auth && req.auth.isSuperAdmin)) {
+    return next();
+  }
+
+  const { authzUser, permissionCodes } = await getAuthzUserWithPermissions(req.auth.sub);
+  if (!authzUser || authzUser.status !== 'active') {
+    return res.status(403).json({ code: 1, message: '当前FIN账号未开通或已禁用' });
+  }
+
+  const allow = codes.some((code) => permissionCodes.includes(code));
+  if (!allow) {
+    return res.status(403).json({ code: 1, message: '当前账号无该操作权限' });
+  }
+
+  req.finAuthz = { authzUser, permissionCodes };
+  return next();
+});
+
+const setRolePermissions = async (roleId, permissionCodes) => {
+  const codes = parseCodeArray(permissionCodes);
+  await run('DELETE FROM fin_auth_role_permissions WHERE role_id = ?', [Number(roleId)]);
+  if (!codes.length) return;
+
+  const placeholders = codes.map(() => '?').join(',');
+  const permissions = await getAll(`SELECT id FROM fin_auth_permissions WHERE code IN (${placeholders})`, codes);
+  for (const item of permissions) {
+    await run(
+      'INSERT IGNORE INTO fin_auth_role_permissions (role_id, permission_id) VALUES (?, ?)',
+      [Number(roleId), Number(item.id)]
+    );
+  }
+};
+
+const setUserRoles = async (userId, roleIds) => {
+  const ids = parseIdArray(roleIds);
+  await run('DELETE FROM fin_auth_user_roles WHERE user_id = ?', [Number(userId)]);
+  if (!ids.length) return;
+
+  const placeholders = ids.map(() => '?').join(',');
+  const rows = await getAll(`SELECT id FROM fin_auth_roles WHERE id IN (${placeholders})`, ids);
+  for (const row of rows) {
+    await run('INSERT IGNORE INTO fin_auth_user_roles (user_id, role_id) VALUES (?, ?)', [Number(userId), Number(row.id)]);
+  }
+};
+
+const formatRoleRow = (row) => ({
+  id: Number(row.id),
+  code: row.code,
+  name: row.name,
+  description: row.description || '',
+  status: row.status,
+  isBuiltin: toBoolFlag(row.is_builtin),
+  permissionCodes: row.permission_codes ? row.permission_codes.split(',').filter(Boolean) : [],
+  permissionNames: row.permission_names ? row.permission_names.split(',').filter(Boolean) : [],
+  createdAt: row.created_at,
+  updatedAt: row.updated_at
+});
+
+const listAuthzRoles = async () => {
+  const rows = await getAll(`
+    SELECT r.id, r.code, r.name, r.description, r.status, r.is_builtin, r.created_at, r.updated_at,
+           GROUP_CONCAT(DISTINCT p.code ORDER BY p.code SEPARATOR ',') AS permission_codes,
+           GROUP_CONCAT(DISTINCT p.name ORDER BY p.code SEPARATOR ',') AS permission_names
+    FROM fin_auth_roles r
+    LEFT JOIN fin_auth_role_permissions rp ON rp.role_id = r.id
+    LEFT JOIN fin_auth_permissions p ON p.id = rp.permission_id
+    GROUP BY r.id
+    ORDER BY r.is_builtin DESC, r.id ASC
+  `);
+  return rows.map(formatRoleRow);
+};
+
+const listAuthzUsers = async () => {
+  const rows = await getAll(`
+    SELECT u.id, u.portal_user_id, u.username, u.display_name, u.status, u.remarks, u.created_at, u.updated_at,
+           GROUP_CONCAT(DISTINCT r.id ORDER BY r.id SEPARATOR ',') AS role_ids,
+           GROUP_CONCAT(DISTINCT r.code ORDER BY r.code SEPARATOR ',') AS role_codes,
+           GROUP_CONCAT(DISTINCT r.name ORDER BY r.id SEPARATOR ',') AS role_names
+    FROM fin_auth_users u
+    LEFT JOIN fin_auth_user_roles ur ON ur.user_id = u.id
+    LEFT JOIN fin_auth_roles r ON r.id = ur.role_id
+    GROUP BY u.id
+    ORDER BY u.id DESC
+  `);
+  return rows.map((row) => ({
+    id: Number(row.id),
+    portalUserId: Number(row.portal_user_id),
+    username: row.username,
+    displayName: row.display_name,
+    status: row.status,
+    remarks: row.remarks || '',
+    roleIds: row.role_ids ? row.role_ids.split(',').map((x) => Number(x)).filter((x) => Number.isInteger(x) && x > 0) : [],
+    roleCodes: row.role_codes ? row.role_codes.split(',').filter(Boolean) : [],
+    roleNames: row.role_names ? row.role_names.split(',').filter(Boolean) : [],
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  }));
+};
+
+const getAuthzRoleById = async (id) => {
+  const role = await getOne('SELECT id FROM fin_auth_roles WHERE id = ?', [Number(id)]);
+  if (!role) return null;
+  const rows = await listAuthzRoles();
+  return rows.find((x) => x.id === Number(id)) || null;
+};
+
+const getAuthzUserById = async (id) => {
+  const user = await getOne('SELECT id FROM fin_auth_users WHERE id = ?', [Number(id)]);
+  if (!user) return null;
+  const rows = await listAuthzUsers();
+  return rows.find((x) => x.id === Number(id)) || null;
+};
+
+const ensureAuthzUserFromToken = async (payload) => {
+  const portalUserId = Number(payload && payload.sub);
+  if (!Number.isInteger(portalUserId) || portalUserId <= 0) return null;
+  const username = String((payload && payload.username) || '').trim();
+  const displayName = String((payload && (payload.displayName || payload.username)) || '').trim();
+  if (!username || !displayName) return null;
+
+  await run(
+    `INSERT INTO fin_auth_users (portal_user_id, username, display_name, status)
+     VALUES (?, ?, ?, 'active')
+     ON DUPLICATE KEY UPDATE portal_user_id = VALUES(portal_user_id), username = VALUES(username), display_name = VALUES(display_name), status = 'active'`,
+    [portalUserId, username, displayName]
+  );
+
+  const user = await getOne('SELECT id FROM fin_auth_users WHERE portal_user_id = ? LIMIT 1', [portalUserId]);
+  if (!user) return null;
+
+  if (toBoolFlag(payload && payload.isSuperAdmin)) {
+    const role = await getOne("SELECT id FROM fin_auth_roles WHERE code = 'fin_admin' LIMIT 1");
+    if (role) {
+      await run(
+        'INSERT IGNORE INTO fin_auth_user_roles (user_id, role_id) VALUES (?, ?)',
+        [Number(user.id), Number(role.id)]
+      );
+    }
+  }
+
+  return Number(user.id);
+};
+
+const requirePortalAuth = asyncHandler(async (req, res, next) => {
   const token = extractBearerToken(req);
   if (!token) {
     return res.status(401).json({ code: 1, message: '未登录或登录已过期' });
@@ -130,8 +437,9 @@ const requirePortalAuth = (req, res, next) => {
   }
 
   req.auth = payload;
-  next();
-};
+  await ensureAuthzUserFromToken(payload);
+  return next();
+});
 
 const receivableProgressText = (status, ratio) => {
   const r = clampProgress(ratio);
@@ -1371,16 +1679,226 @@ app.use('/api', (req, res, next) => {
 });
 
 app.get('/api/auth/context', asyncHandler(async (req, res) => {
+  const { authzUser, permissionCodes } = await getAuthzUserWithPermissions(req.auth.sub);
+  const isSuperAdmin = toBoolFlag(req.auth && req.auth.isSuperAdmin);
+  const effectivePermissionCodes = isSuperAdmin
+    ? (await getAll('SELECT code FROM fin_auth_permissions ORDER BY code')).map((x) => x.code)
+    : permissionCodes;
+
   res.json({
     code: 0,
     data: {
       userId: Number(req.auth.sub || 0),
       username: req.auth.username || '',
       displayName: req.auth.displayName || '',
+      isAdmin: toBoolFlag(req.auth && req.auth.isAdmin),
+      isSuperAdmin,
+      authzUserId: authzUser ? Number(authzUser.id) : null,
+      authzStatus: authzUser ? authzUser.status : null,
+      permissionCodes: effectivePermissionCodes,
       appAccess: Array.isArray(req.auth.appAccess) ? req.auth.appAccess : [],
       bindings: req.auth.bindings || {}
     }
   });
+}));
+
+const requireAuthzRead = requireAnyAuthzPermission(['fin.user.manage', 'fin.permission.manage']);
+const requireUserManage = requireAnyAuthzPermission(['fin.user.manage']);
+const requirePermissionManage = requireAnyAuthzPermission(['fin.permission.manage']);
+
+app.get('/api/authz/me', asyncHandler(async (req, res) => {
+  const isSuperAdmin = toBoolFlag(req.auth && req.auth.isSuperAdmin);
+  const [userRows, permissionRows] = await Promise.all([
+    listAuthzUsers(),
+    isSuperAdmin ? getAll('SELECT code FROM fin_auth_permissions ORDER BY code') : Promise.resolve(null)
+  ]);
+  const currentUser = userRows.find((x) => x.portalUserId === Number(req.auth.sub)) || null;
+  const permissionCodes = isSuperAdmin
+    ? permissionRows.map((x) => x.code)
+    : (await getAuthzUserWithPermissions(req.auth.sub)).permissionCodes;
+  res.json({
+    code: 0,
+    data: {
+      portalUser: {
+        id: Number(req.auth.sub || 0),
+        username: req.auth.username || '',
+        displayName: req.auth.displayName || '',
+        isAdmin: toBoolFlag(req.auth && req.auth.isAdmin),
+        isSuperAdmin
+      },
+      authzUser: currentUser,
+      roleCodes: currentUser ? currentUser.roleCodes : [],
+      permissionCodes,
+      appAccess: Array.isArray(req.auth.appAccess) ? req.auth.appAccess : []
+    }
+  });
+}));
+
+app.get('/api/authz/permissions', requireAuthzRead, asyncHandler(async (req, res) => {
+  const rows = await getAll(
+    `SELECT id, code, name, module_code, description, created_at
+     FROM fin_auth_permissions
+     ORDER BY module_code ASC, code ASC`
+  );
+  const data = rows.map((x) => ({
+    id: Number(x.id),
+    code: x.code,
+    name: x.name,
+    moduleCode: x.module_code,
+    description: x.description || '',
+    createdAt: x.created_at
+  }));
+  res.json({ code: 0, data });
+}));
+
+app.get('/api/authz/roles', requireAuthzRead, asyncHandler(async (req, res) => {
+  const data = await listAuthzRoles();
+  res.json({ code: 0, data });
+}));
+
+app.post('/api/authz/roles', requirePermissionManage, asyncHandler(async (req, res) => {
+  const code = String(req.body.code || '').trim();
+  const name = String(req.body.name || '').trim();
+  const description = String(req.body.description || '').trim() || null;
+  const status = normalizeAuthStatus(req.body.status, 'active');
+  const permissionCodes = parseCodeArray(req.body.permissionCodes);
+  if (!code || !/^[a-z][a-z0-9_.-]{2,63}$/.test(code)) {
+    return res.status(400).json({ code: 1, message: '角色编码格式非法（3-64位，字母开头）' });
+  }
+  if (!name) return res.status(400).json({ code: 1, message: '角色名称不能为空' });
+
+  try {
+    const result = await run(
+      'INSERT INTO fin_auth_roles (code, name, description, status, is_builtin) VALUES (?, ?, ?, ?, 0)',
+      [code, name, description, status]
+    );
+    await setRolePermissions(result.insertId, permissionCodes);
+    const data = await getAuthzRoleById(result.insertId);
+    res.json({ code: 0, message: '角色创建成功', data });
+  } catch (error) {
+    if (error && error.code === 'ER_DUP_ENTRY') {
+      return res.status(409).json({ code: 1, message: '角色编码已存在' });
+    }
+    throw error;
+  }
+}));
+
+app.put('/api/authz/roles/:id', requirePermissionManage, asyncHandler(async (req, res) => {
+  const roleId = Number(req.params.id);
+  const current = await getOne('SELECT id, code, name, description, status, is_builtin FROM fin_auth_roles WHERE id = ?', [roleId]);
+  if (!current) return res.status(404).json({ code: 1, message: '角色不存在' });
+
+  const nextCode = String(req.body.code ?? current.code ?? '').trim();
+  const nextName = String(req.body.name ?? current.name ?? '').trim();
+  const nextDescription = String(req.body.description ?? current.description ?? '').trim() || null;
+  const nextStatus = normalizeAuthStatus(req.body.status, current.status);
+  const permissionCodes = req.body.permissionCodes === undefined ? null : parseCodeArray(req.body.permissionCodes);
+  if (!nextName) return res.status(400).json({ code: 1, message: '角色名称不能为空' });
+  if (!toBoolFlag(current.is_builtin) && !/^[a-z][a-z0-9_.-]{2,63}$/.test(nextCode)) {
+    return res.status(400).json({ code: 1, message: '角色编码格式非法（3-64位，字母开头）' });
+  }
+  if (toBoolFlag(current.is_builtin) && nextStatus !== 'active') {
+    return res.status(400).json({ code: 1, message: '内置角色不能禁用' });
+  }
+
+  try {
+    await run(
+      `UPDATE fin_auth_roles
+       SET code = ?, name = ?, description = ?, status = ?
+       WHERE id = ?`,
+      [toBoolFlag(current.is_builtin) ? current.code : nextCode, nextName, nextDescription, nextStatus, roleId]
+    );
+    if (permissionCodes !== null) await setRolePermissions(roleId, permissionCodes);
+    const data = await getAuthzRoleById(roleId);
+    res.json({ code: 0, message: '角色更新成功', data });
+  } catch (error) {
+    if (error && error.code === 'ER_DUP_ENTRY') {
+      return res.status(409).json({ code: 1, message: '角色编码已存在' });
+    }
+    throw error;
+  }
+}));
+
+app.delete('/api/authz/roles/:id', requirePermissionManage, asyncHandler(async (req, res) => {
+  const roleId = Number(req.params.id);
+  const role = await getOne('SELECT id, is_builtin FROM fin_auth_roles WHERE id = ?', [roleId]);
+  if (!role) return res.status(404).json({ code: 1, message: '角色不存在' });
+  if (toBoolFlag(role.is_builtin)) {
+    return res.status(400).json({ code: 1, message: '内置角色不允许删除' });
+  }
+  await run('DELETE FROM fin_auth_roles WHERE id = ?', [roleId]);
+  res.json({ code: 0, message: '角色删除成功' });
+}));
+
+app.get('/api/authz/users', requireUserManage, asyncHandler(async (req, res) => {
+  const data = await listAuthzUsers();
+  res.json({ code: 0, data });
+}));
+
+app.post('/api/authz/users', requireUserManage, asyncHandler(async (req, res) => {
+  const portalUserId = Number(req.body.portalUserId);
+  const username = String(req.body.username || '').trim();
+  const displayName = String(req.body.displayName || '').trim();
+  const status = normalizeAuthStatus(req.body.status, 'active');
+  const remarks = String(req.body.remarks || '').trim() || null;
+  const roleIds = parseIdArray(req.body.roleIds);
+  if (!Number.isInteger(portalUserId) || portalUserId <= 0) {
+    return res.status(400).json({ code: 1, message: '门户用户ID必须为正整数' });
+  }
+  if (!username) return res.status(400).json({ code: 1, message: '用户名不能为空' });
+  if (!displayName) return res.status(400).json({ code: 1, message: '显示名称不能为空' });
+
+  try {
+    await run(
+      `INSERT INTO fin_auth_users (portal_user_id, username, display_name, status, remarks)
+       VALUES (?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE username = VALUES(username), display_name = VALUES(display_name), status = VALUES(status), remarks = VALUES(remarks)`,
+      [portalUserId, username, displayName, status, remarks]
+    );
+    const user = await getOne('SELECT id FROM fin_auth_users WHERE portal_user_id = ? LIMIT 1', [portalUserId]);
+    await setUserRoles(user.id, roleIds);
+    const data = await getAuthzUserById(user.id);
+    res.json({ code: 0, message: 'FIN用户保存成功', data });
+  } catch (error) {
+    if (error && error.code === 'ER_DUP_ENTRY') {
+      return res.status(409).json({ code: 1, message: '用户名或门户用户ID冲突' });
+    }
+    throw error;
+  }
+}));
+
+app.put('/api/authz/users/:id', requireUserManage, asyncHandler(async (req, res) => {
+  const userId = Number(req.params.id);
+  const current = await getOne('SELECT * FROM fin_auth_users WHERE id = ?', [userId]);
+  if (!current) return res.status(404).json({ code: 1, message: 'FIN用户不存在' });
+
+  const nextUsername = String(req.body.username ?? current.username ?? '').trim();
+  const nextDisplayName = String(req.body.displayName ?? current.display_name ?? '').trim();
+  const nextStatus = normalizeAuthStatus(req.body.status, current.status);
+  const nextRemarks = req.body.remarks === undefined ? current.remarks : (String(req.body.remarks || '').trim() || null);
+  const roleIds = req.body.roleIds === undefined ? null : parseIdArray(req.body.roleIds);
+  if (!nextUsername) return res.status(400).json({ code: 1, message: '用户名不能为空' });
+  if (!nextDisplayName) return res.status(400).json({ code: 1, message: '显示名称不能为空' });
+  if (Number(current.portal_user_id) === Number(req.auth.sub) && nextStatus !== 'active') {
+    return res.status(400).json({ code: 1, message: '不能禁用当前登录用户' });
+  }
+
+  try {
+    await run(
+      `UPDATE fin_auth_users
+       SET username = ?, display_name = ?, status = ?, remarks = ?
+       WHERE id = ?`,
+      [nextUsername, nextDisplayName, nextStatus, nextRemarks, userId]
+    );
+    if (roleIds !== null) await setUserRoles(userId, roleIds);
+    const data = await getAuthzUserById(userId);
+    res.json({ code: 0, message: 'FIN用户更新成功', data });
+  } catch (error) {
+    if (error && error.code === 'ER_DUP_ENTRY') {
+      return res.status(409).json({ code: 1, message: '用户名冲突' });
+    }
+    throw error;
+  }
 }));
 
 app.get('/api/oa-employees', asyncHandler(async (req, res) => {
@@ -3197,15 +3715,24 @@ app.use((error, req, res, next) => {
   res.status(500).json({ code: 1, message: error.message || '服务器错误' });
 });
 
-app.listen(PORT, '0.0.0.0', async () => {
+const startServer = async () => {
   try {
+    const conn = await pool.getConnection();
+    await conn.ping();
+    conn.release();
+    await ensureAuthzTables();
     await ensureSyncProgressColumns();
     await ensureBudgetCostTables();
     await getOne('SELECT 1 AS ok');
     console.log(`🗄️ FIN 已连接 MySQL: ${dbConfig.host}:${dbConfig.port}/${dbConfig.database}`);
   } catch (error) {
     console.error('❌ FIN MySQL 连接失败:', error.message);
+    process.exit(1);
   }
-  console.log(`💰 FIN API 已启动: http://0.0.0.0:${PORT}`);
-  console.log(`📈 Dashboard: http://0.0.0.0:${PORT}/api/dashboard`);
-});
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`💰 FIN API 已启动: http://0.0.0.0:${PORT}`);
+    console.log(`📈 Dashboard: http://0.0.0.0:${PORT}/api/dashboard`);
+  });
+};
+
+startServer();

@@ -13,6 +13,82 @@
       --sidebar-hover: #d5e9ff;
     }
 
+    .user-menu {
+      position: relative;
+    }
+
+    .user-trigger {
+      background: transparent;
+      border: 0;
+      padding: 0;
+      cursor: pointer;
+    }
+
+    .user-trigger:focus-visible {
+      outline: 2px solid rgba(25, 118, 210, 0.45);
+      outline-offset: 2px;
+      border-radius: 12px;
+    }
+
+    .user-dropdown {
+      position: absolute;
+      top: calc(100% + 8px);
+      right: 0;
+      min-width: 178px;
+      border-radius: 12px;
+      border: 1px solid #d4e0ef;
+      background: #ffffff;
+      box-shadow: 0 16px 32px rgba(16, 36, 66, 0.16);
+      padding: 6px;
+      z-index: 30;
+    }
+
+    .dropdown-item {
+      width: 100%;
+      border: 0;
+      background: transparent;
+      text-align: left;
+      border-radius: 8px;
+      padding: 8px 10px;
+      color: #334f71;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .dropdown-item:hover {
+      background: #edf4ff;
+      color: #1c56c7;
+    }
+
+    .dropdown-split {
+      margin: 6px 2px;
+      border-top: 1px solid #e8eff8;
+    }
+
+    .permission-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .permission-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 8px;
+      border-radius: 8px;
+      background: #f3f8ff;
+      border: 1px solid #d5e4f7;
+      font-size: 12px;
+      color: #385273;
+    }
+
+    .text-muted {
+      color: #7588a3;
+      font-size: 12px;
+    }
+
     .money-negative { color: #cb3d3d; font-weight: 700; }
     .money-positive { color: #1d8f63; font-weight: 700; }
     .grid-3 {
@@ -69,12 +145,22 @@
     <main class="main">
       <div class="header">
         <h1 id="pageTitle">总览</h1>
-        <div class="user-panel">
-          <div class="user-meta">
-            <span class="user-role">FIN 财务经理</span>
-            <span class="user-name">李七</span>
+        <div class="user-menu">
+          <button class="user-trigger" id="userMenuTrigger" type="button" aria-haspopup="menu" aria-expanded="false">
+            <div class="user-panel">
+              <div class="user-meta">
+                <span class="user-role" id="finUserRole">FIN 财务经理</span>
+                <span class="user-name">李七</span>
+              </div>
+              <div class="user-avatar">李</div>
+            </div>
+          </button>
+          <div class="user-dropdown hidden" id="userDropdown" role="menu" aria-label="用户菜单">
+            <button type="button" class="dropdown-item" data-action="open-auth-users">用户管理</button>
+            <button type="button" class="dropdown-item" data-action="open-auth-permissions">权限管理</button>
+            <div class="dropdown-split"></div>
+            <button type="button" class="dropdown-item" data-action="logout">退出登录</button>
           </div>
-          <div class="user-avatar">李</div>
         </div>
       </div>
 
@@ -295,6 +381,36 @@
               <tbody id="vendorTable"></tbody>
             </table>
           </div>
+        </div>
+      </section>
+
+      <section id="page-auth-users" class="hidden">
+        <div class="card">
+          <div class="card-title">
+            FIN 用户管理
+            <button class="btn btn-primary" type="button" onclick="openAuthUserModal()">新增FIN用户</button>
+          </div>
+          <table class="table">
+            <thead><tr><th>门户ID</th><th>用户名</th><th>显示名</th><th>状态</th><th>角色</th><th>备注</th><th>操作</th></tr></thead>
+            <tbody id="authUserTable"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="page-auth-permissions" class="hidden">
+        <div class="card">
+          <div class="card-title">
+            角色与权限管理
+            <button class="btn btn-primary" type="button" onclick="openRoleModal()">新增角色</button>
+          </div>
+          <table class="table">
+            <thead><tr><th>编码</th><th>名称</th><th>状态</th><th>权限数</th><th>权限</th><th>操作</th></tr></thead>
+            <tbody id="roleTable"></tbody>
+          </table>
+        </div>
+        <div class="card">
+          <div class="card-title">权限清单</div>
+          <div class="permission-list" id="permissionList"></div>
         </div>
       </section>
     </main>
@@ -544,6 +660,52 @@
     </div>
   </div>
 
+  <div class="modal" id="authUserModal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="authUserModalTitle">新增FIN用户</h3>
+        <span class="modal-close" onclick="closeModal('authUserModal')">&times;</span>
+      </div>
+      <form id="authUserForm" onsubmit="submitAuthUserForm(event)">
+        <input type="hidden" id="authUserId">
+        <div class="form-group"><label>门户用户ID *</label><input id="authPortalUserId" type="number" min="1" required></div>
+        <div class="form-group"><label>门户用户名 *</label><input id="authUsername" required></div>
+        <div class="form-group"><label>显示名称 *</label><input id="authDisplayName" required></div>
+        <div class="form-group"><label>状态</label><select id="authUserStatus"><option value="active">启用</option><option value="disabled">禁用</option></select></div>
+        <div class="form-group"><label>角色（可多选）</label><select id="authRoleIds" multiple style="height:110px"></select></div>
+        <div class="form-group"><label>备注</label><textarea id="authRemarks" placeholder="可选"></textarea></div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-default" onclick="closeModal('authUserModal')">取消</button>
+          <button type="submit" class="btn btn-primary">保存</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="modal" id="roleModal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="roleModalTitle">新增角色</h3>
+        <span class="modal-close" onclick="closeModal('roleModal')">&times;</span>
+      </div>
+      <form id="roleForm" onsubmit="submitRoleForm(event)">
+        <input type="hidden" id="roleId">
+        <div class="form-group"><label>角色编码 *</label><input id="roleCode" placeholder="如: fin.cash.viewer" required></div>
+        <div class="form-group"><label>角色名称 *</label><input id="roleName" required></div>
+        <div class="form-group"><label>状态</label><select id="roleStatus"><option value="active">启用</option><option value="disabled">禁用</option></select></div>
+        <div class="form-group"><label>描述</label><textarea id="roleDescription"></textarea></div>
+        <div class="form-group">
+          <label>角色权限</label>
+          <div class="permission-list" id="rolePermissionEditor"></div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-default" onclick="closeModal('roleModal')">取消</button>
+          <button type="submit" class="btn btn-primary">保存</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <script src="./config.js"></script>
   <script>
     const runtime = window.__FIN_CONFIG__ || {};
@@ -553,18 +715,6 @@
       ? runtime.PORTAL_BASE.trim()
       : `${window.location.protocol}//${window.location.hostname}:5401`;
     const TOKEN_KEY = 'cnnbgpt_sso_token';
-
-    const applyLoggedInUser = async () => {
-      try {
-        const ctx = await fetch(`${API}/auth/context`).then((r) => r.json());
-        const displayName = String((ctx && ctx.data && (ctx.data.displayName || ctx.data.username)) || '').trim();
-        if (!displayName) return;
-        const avatar = displayName.charAt(0).toUpperCase();
-        document.querySelectorAll('.user-name').forEach((el) => { el.textContent = displayName; });
-        document.querySelectorAll('.user-avatar').forEach((el) => { el.textContent = avatar; });
-      } catch (error) {
-      }
-    };
 
     const setupSso = () => {
       const url = new URL(window.location.href);
@@ -609,16 +759,144 @@
       budgets: [],
       costs: [],
       salaries: [],
-      aiExpenses: []
+      aiExpenses: [],
+      auth: null,
+      authzUsers: [],
+      authzRoles: [],
+      authzPermissions: []
+    };
+
+    const PAGE_TITLES = {
+      dashboard: '总览',
+      receivables: '应收管理',
+      payables: '应付管理',
+      budgets: '预算管理',
+      costs: '成本管理',
+      salaries: '薪资管理',
+      'ai-expenses': 'AI费用管理',
+      accounts: '资金账户',
+      master: '基础资料',
+      'auth-users': '用户管理',
+      'auth-permissions': '权限管理'
+    };
+
+    const PAGE_PERMISSIONS = {
+      dashboard: 'fin.dashboard.view',
+      receivables: 'fin.receivable.manage',
+      payables: 'fin.payable.manage',
+      budgets: 'fin.budget.manage',
+      costs: 'fin.cost.manage',
+      salaries: 'fin.salary.manage',
+      'ai-expenses': 'fin.ai-expense.manage',
+      accounts: 'fin.account.manage',
+      master: 'fin.master.manage',
+      'auth-users': 'fin.user.manage',
+      'auth-permissions': 'fin.permission.manage'
+    };
+
+    const hasPermission = (code) => {
+      if (!code) return true;
+      if (state.auth && state.auth.isSuperAdmin) return true;
+      const list = Array.isArray(state.auth?.permissionCodes) ? state.auth.permissionCodes : [];
+      return list.includes(code);
+    };
+
+    const applySidebarPermission = () => {
+      document.querySelectorAll('.menu-item').forEach((item) => {
+        const page = item.dataset.page;
+        item.classList.toggle('hidden', !hasPermission(PAGE_PERMISSIONS[page]));
+      });
+    };
+
+    const getFirstAvailablePage = () => {
+      const pages = ['dashboard', 'receivables', 'payables', 'budgets', 'costs', 'salaries', 'ai-expenses', 'accounts', 'master', 'auth-users', 'auth-permissions'];
+      return pages.find((page) => hasPermission(PAGE_PERMISSIONS[page])) || 'dashboard';
+    };
+
+    const applyLoggedInUser = async () => {
+      try {
+        const ctx = await request('/auth/context');
+        state.auth = ctx.data || {};
+        const displayName = String((ctx.data && (ctx.data.displayName || ctx.data.username)) || '').trim();
+        if (displayName) {
+          const avatar = displayName.charAt(0).toUpperCase();
+          document.querySelectorAll('.user-name').forEach((el) => { el.textContent = displayName; });
+          document.querySelectorAll('.user-avatar').forEach((el) => { el.textContent = avatar; });
+        }
+        const roleEl = document.getElementById('finUserRole');
+        if (roleEl) {
+          roleEl.textContent = ctx.data && ctx.data.isSuperAdmin ? 'FIN 超级管理员' : 'FIN 财务经理';
+        }
+      } catch (error) {
+      }
+    };
+
+    const closeUserMenu = () => {
+      const dropdown = document.getElementById('userDropdown');
+      const trigger = document.getElementById('userMenuTrigger');
+      if (!dropdown || !trigger) return;
+      dropdown.classList.add('hidden');
+      trigger.setAttribute('aria-expanded', 'false');
+    };
+
+    const openUserMenu = () => {
+      const dropdown = document.getElementById('userDropdown');
+      const trigger = document.getElementById('userMenuTrigger');
+      if (!dropdown || !trigger) return;
+      dropdown.classList.remove('hidden');
+      trigger.setAttribute('aria-expanded', 'true');
+    };
+
+    const logout = () => {
+      localStorage.removeItem(TOKEN_KEY);
+      const returnUrl = encodeURIComponent(window.location.href.split('#')[0]);
+      window.location.href = `${PORTAL_BASE}/?returnUrl=${returnUrl}`;
+    };
+
+    const setupUserDropdown = () => {
+      const trigger = document.getElementById('userMenuTrigger');
+      const dropdown = document.getElementById('userDropdown');
+      if (!trigger || !dropdown) return;
+
+      trigger.addEventListener('click', (event) => {
+        event.stopPropagation();
+        if (dropdown.classList.contains('hidden')) openUserMenu();
+        else closeUserMenu();
+      });
+
+      dropdown.querySelectorAll('[data-action]').forEach((btn) => {
+        if (btn.dataset.action === 'open-auth-users') {
+          btn.classList.toggle('hidden', !hasPermission(PAGE_PERMISSIONS['auth-users']));
+        }
+        if (btn.dataset.action === 'open-auth-permissions') {
+          btn.classList.toggle('hidden', !hasPermission(PAGE_PERMISSIONS['auth-permissions']));
+        }
+        btn.addEventListener('click', () => {
+          const action = btn.dataset.action;
+          closeUserMenu();
+          if (action === 'open-auth-users') return go('auth-users');
+          if (action === 'open-auth-permissions') return go('auth-permissions');
+          if (action === 'logout') logout();
+        });
+      });
+
+      document.addEventListener('click', (event) => {
+        if (!dropdown.classList.contains('hidden') && !event.target.closest('.user-menu')) {
+          closeUserMenu();
+        }
+      });
     };
 
     document.addEventListener('DOMContentLoaded', async () => {
       if (!setupSso()) return;
       await applyLoggedInUser();
+      applySidebarPermission();
+      setupUserDropdown();
       document.querySelectorAll('.menu-item').forEach((item) => {
         item.addEventListener('click', () => go(item.dataset.page));
       });
       await bootstrap();
+      go(getFirstAvailablePage());
     });
 
     function fmtMoney(value) {
@@ -703,23 +981,22 @@
     function closeModal(id) { document.getElementById(id).classList.remove('active'); }
 
     function go(page) {
-      document.querySelectorAll('.menu-item').forEach((m) => m.classList.remove('active'));
-      document.querySelector(`.menu-item[data-page="${page}"]`).classList.add('active');
-      document.querySelectorAll('[id^="page-"]').forEach((p) => p.classList.add('hidden'));
-      document.getElementById(`page-${page}`).classList.remove('hidden');
+      const requiredCode = PAGE_PERMISSIONS[page];
+      if (requiredCode && !hasPermission(requiredCode)) {
+        alert('当前账号暂无该页面权限');
+        return;
+      }
 
-      const titles = {
-        dashboard: '总览',
-        receivables: '应收管理',
-        payables: '应付管理',
-        budgets: '预算管理',
-        costs: '成本管理',
-        salaries: '薪资管理',
-        'ai-expenses': 'AI费用管理',
-        accounts: '资金账户',
-        master: '基础资料'
-      };
-      document.getElementById('pageTitle').textContent = titles[page] || '总览';
+      document.querySelectorAll('.menu-item').forEach((m) => m.classList.remove('active'));
+      const menuEl = document.querySelector(`.menu-item[data-page="${page}"]`);
+      if (menuEl) {
+        menuEl.classList.add('active');
+      }
+      document.querySelectorAll('[id^="page-"]').forEach((p) => p.classList.add('hidden'));
+      const pageEl = document.getElementById(`page-${page}`);
+      if (!pageEl) return;
+      pageEl.classList.remove('hidden');
+      document.getElementById('pageTitle').textContent = PAGE_TITLES[page] || '总览';
 
       if (page === 'dashboard') loadDashboard();
       if (page === 'receivables') loadReceivables();
@@ -730,6 +1007,8 @@
       if (page === 'ai-expenses') loadAiExpenses();
       if (page === 'accounts') loadAccounts();
       if (page === 'master') loadMaster();
+      if (page === 'auth-users') loadAuthzUsersPage();
+      if (page === 'auth-permissions') loadAuthzRolePage();
     }
 
     async function bootstrap() {
@@ -1619,6 +1898,248 @@
         await Promise.all([loadMaster(), loadPayables(), loadCosts(), loadAiExpenses()]);
       } catch (error) {
         alert(error.message);
+      }
+    }
+
+    const escapeHtml = (value) => String(value || '')
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&#39;');
+
+    const selectedValues = (selectId) => {
+      const select = document.getElementById(selectId);
+      if (!select) return [];
+      return Array.from(select.selectedOptions).map((x) => Number(x.value)).filter((x) => Number.isInteger(x) && x > 0);
+    };
+
+    const fillAuthRoleOptions = (selectedRoleIds = []) => {
+      const target = document.getElementById('authRoleIds');
+      if (!target) return;
+      target.innerHTML = state.authzRoles
+        .map((role) => `<option value="${role.id}">${escapeHtml(role.name)} (${escapeHtml(role.code)})</option>`)
+        .join('');
+      const selectedSet = new Set(selectedRoleIds.map((x) => Number(x)));
+      Array.from(target.options).forEach((opt) => {
+        opt.selected = selectedSet.has(Number(opt.value));
+      });
+    };
+
+    const renderAuthUserTable = () => {
+      const el = document.getElementById('authUserTable');
+      if (!el) return;
+      if (!state.authzUsers.length) {
+        el.innerHTML = '<tr><td colspan="7" class="text-muted">暂无FIN用户，请先新增。</td></tr>';
+        return;
+      }
+      el.innerHTML = state.authzUsers.map((user) => `
+        <tr>
+          <td>${user.portalUserId}</td>
+          <td>${escapeHtml(user.username)}</td>
+          <td>${escapeHtml(user.displayName)}</td>
+          <td><span class="status ${user.status === 'active' ? 'active' : 'inactive'}">${user.status === 'active' ? '启用' : '禁用'}</span></td>
+          <td>${user.roleNames && user.roleNames.length ? user.roleNames.map((name) => `<span class="tag normal">${escapeHtml(name)}</span>`).join(' ') : '-'}</td>
+          <td>${user.remarks ? escapeHtml(user.remarks) : '-'}</td>
+          <td><button class="btn btn-primary btn-sm" type="button" onclick="openAuthUserModal(${user.id})">编辑</button></td>
+        </tr>
+      `).join('');
+    };
+
+    const renderRoleTable = () => {
+      const el = document.getElementById('roleTable');
+      if (!el) return;
+      if (!state.authzRoles.length) {
+        el.innerHTML = '<tr><td colspan="6" class="text-muted">暂无角色</td></tr>';
+        return;
+      }
+      el.innerHTML = state.authzRoles.map((role) => {
+        const perms = role.permissionNames && role.permissionNames.length
+          ? role.permissionNames.map((name) => `<span class="tag normal">${escapeHtml(name)}</span>`).join(' ')
+          : '-';
+        const disableDelete = role.isBuiltin ? 'disabled' : '';
+        return `
+          <tr>
+            <td>${escapeHtml(role.code)}</td>
+            <td>${escapeHtml(role.name)}${role.isBuiltin ? ' <span class="tag important">内置</span>' : ''}</td>
+            <td><span class="status ${role.status === 'active' ? 'active' : 'inactive'}">${role.status === 'active' ? '启用' : '禁用'}</span></td>
+            <td>${(role.permissionCodes || []).length}</td>
+            <td>${perms}</td>
+            <td>
+              <button class="btn btn-primary btn-sm" type="button" onclick="openRoleModal(${role.id})">编辑</button>
+              <button class="btn btn-danger btn-sm" type="button" onclick="removeRole(${role.id})" ${disableDelete}>删除</button>
+            </td>
+          </tr>
+        `;
+      }).join('');
+    };
+
+    const renderPermissionList = () => {
+      const el = document.getElementById('permissionList');
+      if (!el) return;
+      if (!state.authzPermissions.length) {
+        el.innerHTML = '<span class="text-muted">暂无权限数据</span>';
+        return;
+      }
+      el.innerHTML = state.authzPermissions
+        .map((perm) => `<span class="permission-item">${escapeHtml(perm.name)}<span class="text-muted">${escapeHtml(perm.code)}</span></span>`)
+        .join('');
+    };
+
+    async function loadAuthzUsersPage() {
+      try {
+        const [usersRes, rolesRes] = await Promise.all([
+          request('/authz/users'),
+          request('/authz/roles')
+        ]);
+        state.authzUsers = Array.isArray(usersRes.data) ? usersRes.data : [];
+        state.authzRoles = Array.isArray(rolesRes.data) ? rolesRes.data : [];
+        renderAuthUserTable();
+      } catch (error) {
+        alert(error.message || '加载FIN用户失败');
+      }
+    }
+
+    async function loadAuthzRolePage() {
+      try {
+        const [permissionsRes, rolesRes] = await Promise.all([
+          request('/authz/permissions'),
+          request('/authz/roles')
+        ]);
+        state.authzPermissions = Array.isArray(permissionsRes.data) ? permissionsRes.data : [];
+        state.authzRoles = Array.isArray(rolesRes.data) ? rolesRes.data : [];
+        renderPermissionList();
+        renderRoleTable();
+      } catch (error) {
+        alert(error.message || '加载权限数据失败');
+      }
+    }
+
+    async function openAuthUserModal(userId = null) {
+      try {
+        if (!state.authzRoles.length) {
+          await loadAuthzRolePage();
+        }
+      } catch (error) {
+      }
+
+      const editing = userId ? state.authzUsers.find((x) => Number(x.id) === Number(userId)) : null;
+      document.getElementById('authUserModalTitle').textContent = editing ? '编辑FIN用户' : '新增FIN用户';
+      document.getElementById('authUserId').value = editing ? String(editing.id) : '';
+      const portalInput = document.getElementById('authPortalUserId');
+      portalInput.disabled = Boolean(editing);
+      portalInput.value = editing ? String(editing.portalUserId) : '';
+      document.getElementById('authUsername').value = editing ? editing.username : '';
+      document.getElementById('authDisplayName').value = editing ? editing.displayName : '';
+      document.getElementById('authUserStatus').value = editing ? editing.status : 'active';
+      document.getElementById('authRemarks').value = editing ? (editing.remarks || '') : '';
+      fillAuthRoleOptions(editing ? (editing.roleIds || []) : []);
+      openModal('authUserModal');
+    }
+
+    async function submitAuthUserForm(event) {
+      event.preventDefault();
+      const userId = document.getElementById('authUserId').value.trim();
+      const payload = {
+        portalUserId: Number(document.getElementById('authPortalUserId').value || 0),
+        username: document.getElementById('authUsername').value.trim(),
+        displayName: document.getElementById('authDisplayName').value.trim(),
+        status: document.getElementById('authUserStatus').value,
+        roleIds: selectedValues('authRoleIds'),
+        remarks: document.getElementById('authRemarks').value.trim()
+      };
+
+      try {
+        if (userId) {
+          delete payload.portalUserId;
+          await request(`/authz/users/${userId}`, {
+            method: 'PUT',
+            body: JSON.stringify(payload)
+          });
+        } else {
+          await request('/authz/users', {
+            method: 'POST',
+            body: JSON.stringify(payload)
+          });
+        }
+        closeModal('authUserModal');
+        await loadAuthzUsersPage();
+      } catch (error) {
+        alert(error.message || 'FIN用户保存失败');
+      }
+    }
+
+    function fillRolePermissionEditor(selectedCodes = []) {
+      const container = document.getElementById('rolePermissionEditor');
+      if (!container) return;
+      const selectedSet = new Set((selectedCodes || []).map((x) => String(x)));
+      container.innerHTML = state.authzPermissions.map((perm) => {
+        const checked = selectedSet.has(perm.code) ? 'checked' : '';
+        return `<label class="permission-item"><input type="checkbox" value="${escapeHtml(perm.code)}" ${checked}>${escapeHtml(perm.name)}</label>`;
+      }).join('');
+    }
+
+    async function openRoleModal(roleId = null) {
+      if (!state.authzPermissions.length || !state.authzRoles.length) {
+        await loadAuthzRolePage();
+      }
+      const editing = roleId ? state.authzRoles.find((x) => Number(x.id) === Number(roleId)) : null;
+      document.getElementById('roleModalTitle').textContent = editing ? '编辑角色' : '新增角色';
+      document.getElementById('roleId').value = editing ? String(editing.id) : '';
+      document.getElementById('roleCode').value = editing ? editing.code : '';
+      document.getElementById('roleName').value = editing ? editing.name : '';
+      document.getElementById('roleDescription').value = editing ? (editing.description || '') : '';
+      document.getElementById('roleStatus').value = editing ? editing.status : 'active';
+      document.getElementById('roleCode').disabled = Boolean(editing && editing.isBuiltin);
+      document.getElementById('roleStatus').disabled = Boolean(editing && editing.isBuiltin);
+      fillRolePermissionEditor(editing ? editing.permissionCodes : []);
+      openModal('roleModal');
+    }
+
+    async function submitRoleForm(event) {
+      event.preventDefault();
+      const roleId = document.getElementById('roleId').value.trim();
+      const permissionCodes = Array.from(document.querySelectorAll('#rolePermissionEditor input[type="checkbox"]:checked')).map((x) => x.value);
+      const payload = {
+        code: document.getElementById('roleCode').value.trim(),
+        name: document.getElementById('roleName').value.trim(),
+        description: document.getElementById('roleDescription').value.trim(),
+        status: document.getElementById('roleStatus').value,
+        permissionCodes
+      };
+
+      try {
+        if (roleId) {
+          await request(`/authz/roles/${roleId}`, {
+            method: 'PUT',
+            body: JSON.stringify(payload)
+          });
+        } else {
+          await request('/authz/roles', {
+            method: 'POST',
+            body: JSON.stringify(payload)
+          });
+        }
+        closeModal('roleModal');
+        await loadAuthzRolePage();
+        if (!document.getElementById('page-auth-users').classList.contains('hidden')) {
+          await loadAuthzUsersPage();
+        }
+      } catch (error) {
+        alert(error.message || '角色保存失败');
+      }
+    }
+
+    async function removeRole(roleId) {
+      if (!confirm('确认删除该角色？删除后关联用户将失去该角色权限。')) return;
+      try {
+        await request(`/authz/roles/${roleId}`, { method: 'DELETE' });
+        await loadAuthzRolePage();
+        if (!document.getElementById('page-auth-users').classList.contains('hidden')) {
+          await loadAuthzUsersPage();
+        }
+      } catch (error) {
+        alert(error.message || '角色删除失败');
       }
     }
   </script>

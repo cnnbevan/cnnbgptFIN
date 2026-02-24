@@ -24,6 +24,7 @@ FIN_ENV_KEYS=(
   API_PORT
   PORT
   API_BASE
+  PORTAL_BASE
   PORTAL_PORT
   ADMIN_PORT
   BIND_HOST
@@ -64,6 +65,7 @@ DB_PASSWORD="${DB_PASSWORD:-evanevan2025}"
 DB_NAME="${DB_NAME:-cnnbgptFIN}"
 API_PORT="${API_PORT:-${PORT:-3301}}"
 API_BASE="${API_BASE:-}"
+PORTAL_BASE="${PORTAL_BASE:-}"
 PORTAL_PORT="${PORTAL_PORT:-5301}"
 ADMIN_PORT="${ADMIN_PORT:-5302}"
 BIND_HOST="${BIND_HOST:-0.0.0.0}"
@@ -87,14 +89,16 @@ fi
 cat > "${ROOT_DIR}/client/portal/config.js" <<CONFIG
 window.__FIN_CONFIG__ = {
   API_BASE: "${API_BASE}",
-  API_PORT: ${API_PORT}
+  API_PORT: ${API_PORT},
+  PORTAL_BASE: "${PORTAL_BASE}"
 };
 CONFIG
 
 cat > "${ROOT_DIR}/client/admin/config.js" <<CONFIG
 window.__FIN_CONFIG__ = {
   API_BASE: "${API_BASE}",
-  API_PORT: ${API_PORT}
+  API_PORT: ${API_PORT},
+  PORTAL_BASE: "${PORTAL_BASE}"
 };
 CONFIG
 

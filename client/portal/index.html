@@ -23,6 +23,16 @@
 
     .money-positive { color: #1d8f63; font-weight: 700; }
     .money-negative { color: #cb3d3d; font-weight: 700; }
+
+    .status.draft { background: #eef2f7; color: #556780; }
+    .status.active { background: #e6f4eb; color: #1d8f63; }
+    .status.closed { background: #e9f0ff; color: #2a6cf6; }
+
+    .tips {
+      margin: 8px 0 14px;
+      font-size: 12px;
+      color: #4f6583;
+    }
   </style>
 </head>
 <body>
@@ -32,7 +42,10 @@
       <div class="menu">
         <div class="menu-item active" data-page="dashboard">📈 财务看板</div>
         <div class="menu-item" data-page="transactions">🔁 收付流水</div>
-        <div class="menu-item" data-page="expense">🧾 报销申请</div>
+        <div class="menu-item" data-page="budgets">🧭 预算执行</div>
+        <div class="menu-item" data-page="costs">📉 成本台账</div>
+        <div class="menu-item" data-page="salaries">🧑‍💼 薪资台账</div>
+        <div class="menu-item" data-page="ai-expenses">🤖 AI费用台账</div>
       </div>
     </aside>
 
@@ -56,9 +69,10 @@
         <div class="stats">
           <div class="stat"><div class="label">应收余额</div><div class="value" id="sAr">-</div></div>
           <div class="stat orange"><div class="label">应付余额</div><div class="value" id="sAp">-</div></div>
-          <div class="stat blue"><div class="label">本月净现金流</div><div class="value" id="sNet">-</div></div>
+          <div class="stat blue"><div class="label">本月预算执行率</div><div class="value" id="sBudgetRate">-</div></div>
           <div class="stat green"><div class="label">账户总余额</div><div class="value" id="sCash">-</div></div>
         </div>
+        <div class="tips" id="dashboardMeta">本月预算/成本/薪资/AI费用/净现金流：-</div>
       </section>
 
       <section id="page-transactions" class="hidden">
@@ -72,26 +86,80 @@
         </div>
       </section>
 
-      <section id="page-expense" class="hidden">
-        <div class="card" style="margin-bottom:12px;">
-          <div class="card-title">提交报销申请</div>
-          <form onsubmit="submitExpense(event)">
-            <div class="modal-form-grid">
-              <div class="form-group"><label>报销单号</label><input id="expNo" placeholder="可留空自动生成"></div>
-              <div class="form-group"><label>部门 *</label><input id="expDept" required value="实施交付部"></div>
-              <div class="form-group"><label>申请人 *</label><input id="expApplicant" required value="孙八"></div>
-              <div class="form-group"><label>费用类别 *</label><select id="expCategory"><option value="travel">差旅</option><option value="equipment">设备</option><option value="meals">餐补</option><option value="office">办公</option><option value="other">其他</option></select></div>
-              <div class="form-group"><label>关联业务</label><input id="expBiz" placeholder="项目/订单"></div>
-              <div class="form-group"><label>金额 *</label><input id="expAmount" type="number" min="0" step="0.01" required></div>
-              <div class="form-group"><label>费用日期 *</label><input id="expDate" type="date" required></div>
-            </div>
-            <div class="modal-footer"><button class="btn btn-primary" type="submit">提交报销</button></div>
-          </form>
-        </div>
-
+      <section id="page-budgets" class="hidden">
         <div class="card">
-          <div class="card-title">最近报销申请</div>
-          <table class="table"><thead><tr><th>单号</th><th>部门</th><th>申请人</th><th>金额</th><th>状态</th></tr></thead><tbody id="expenseTable"></tbody></table>
+          <div class="card-title">预算执行明细</div>
+          <div class="filters filters-compact">
+            <input id="budPeriodFilter" placeholder="期间，如 2026-02" onkeydown="if(event.key==='Enter')loadBudgets()">
+            <input id="budKeyword" placeholder="部门/负责人/编号" onkeydown="if(event.key==='Enter')loadBudgets()">
+            <button class="btn btn-default" onclick="loadBudgets()">刷新</button>
+          </div>
+          <table class="table"><thead><tr><th>编号</th><th>期间</th><th>部门</th><th>科目</th><th>预算</th><th>已用</th><th>剩余</th><th>执行率</th><th>状态</th></tr></thead><tbody id="budgetTable"></tbody></table>
+        </div>
+      </section>
+
+      <section id="page-costs" class="hidden">
+        <div class="card">
+          <div class="card-title">成本台账</div>
+          <div class="filters filters-compact">
+            <select id="costStatusFilter" onchange="loadCosts()">
+              <option value="">全部状态</option>
+              <option value="open">待付款</option>
+              <option value="partial">部分付款</option>
+              <option value="overdue">逾期</option>
+              <option value="paid">已付款</option>
+            </select>
+            <input id="costKeyword" placeholder="单号/部门/业务/供应商" onkeydown="if(event.key==='Enter')loadCosts()">
+            <button class="btn btn-default" onclick="loadCosts()">刷新</button>
+          </div>
+          <table class="table"><thead><tr><th>单号</th><th>部门</th><th>类型</th><th>关联业务</th><th>供应商</th><th>成本</th><th>已付</th><th>剩余</th><th>状态</th><th>日期</th></tr></thead><tbody id="costTable"></tbody></table>
+        </div>
+      </section>
+
+      <section id="page-salaries" class="hidden">
+        <div class="card">
+          <div class="card-title">薪资台账</div>
+          <div class="filters filters-compact">
+            <select id="salaryStatusFilter" onchange="loadSalaries()">
+              <option value="">全部状态</option>
+              <option value="open">待发放</option>
+              <option value="partial">部分发放</option>
+              <option value="overdue">逾期</option>
+              <option value="paid">已发放</option>
+            </select>
+            <input id="salaryPeriodFilter" placeholder="期间，如 2026-02" onkeydown="if(event.key==='Enter')loadSalaries()">
+            <input id="salaryKeyword" placeholder="单号/姓名/部门" onkeydown="if(event.key==='Enter')loadSalaries()">
+            <button class="btn btn-default" onclick="loadSalaries()">刷新</button>
+          </div>
+          <table class="table"><thead><tr><th>单号</th><th>期间</th><th>员工</th><th>部门</th><th>应发</th><th>已发</th><th>剩余</th><th>状态</th><th>到期日</th></tr></thead><tbody id="salaryTable"></tbody></table>
+        </div>
+      </section>
+
+      <section id="page-ai-expenses" class="hidden">
+        <div class="card">
+          <div class="card-title">AI费用台账</div>
+          <div class="filters filters-compact">
+            <select id="aiStatusFilter" onchange="loadAiExpenses()">
+              <option value="">全部状态</option>
+              <option value="open">待付款</option>
+              <option value="partial">部分付款</option>
+              <option value="overdue">逾期</option>
+              <option value="paid">已付款</option>
+            </select>
+            <select id="aiServiceTypeFilter" onchange="loadAiExpenses()">
+              <option value="">全部类型</option>
+              <option value="llm_api">LLM API</option>
+              <option value="inference_gpu">推理GPU</option>
+              <option value="training_gpu">训练GPU</option>
+              <option value="vector_db">向量数据库</option>
+              <option value="asr_tts">语音服务</option>
+              <option value="multimodal">多模态</option>
+              <option value="other">其他</option>
+            </select>
+            <input id="aiKeyword" placeholder="单号/供应商/模型" onkeydown="if(event.key==='Enter')loadAiExpenses()">
+            <button class="btn btn-default" onclick="loadAiExpenses()">刷新</button>
+          </div>
+          <table class="table"><thead><tr><th>单号</th><th>期间</th><th>供应商</th><th>类型</th><th>模型</th><th>金额</th><th>已付</th><th>剩余</th><th>状态</th></tr></thead><tbody id="aiExpenseTable"></tbody></table>
         </div>
       </section>
     </main>
@@ -102,17 +170,104 @@
     const runtime = window.__FIN_CONFIG__ || {};
     const apiPort = Number(runtime.API_PORT || 3301);
     const API = runtime.API_BASE && runtime.API_BASE.trim() ? runtime.API_BASE.trim() : `${window.location.protocol}//${window.location.hostname}:${apiPort}/api`;
+    const PORTAL_BASE = runtime.PORTAL_BASE && runtime.PORTAL_BASE.trim()
+      ? runtime.PORTAL_BASE.trim()
+      : `${window.location.protocol}//${window.location.hostname}:5401`;
+    const TOKEN_KEY = 'cnnbgpt_sso_token';
 
-    const statusText = { pending: '待审批', approved: '已审批', reimbursed: '已报销', rejected: '已驳回' };
+    const applyLoggedInUser = async () => {
+      try {
+        const ctx = await fetch(`${API}/auth/context`).then((r) => r.json());
+        const displayName = String((ctx && ctx.data && (ctx.data.displayName || ctx.data.username)) || '').trim();
+        if (!displayName) return;
+        const avatar = displayName.charAt(0).toUpperCase();
+        document.querySelectorAll('.user-name').forEach((el) => { el.textContent = displayName; });
+        document.querySelectorAll('.user-avatar').forEach((el) => { el.textContent = avatar; });
+      } catch (error) {
+      }
+    };
+
+    const setupSso = () => {
+      const url = new URL(window.location.href);
+      const incoming = url.searchParams.get('ssoToken');
+      if (incoming) {
+        localStorage.setItem(TOKEN_KEY, incoming);
+        url.searchParams.delete('ssoToken');
+        const next = `${url.pathname}${url.search}${url.hash}`;
+        window.history.replaceState({}, document.title, next);
+      }
+
+      const token = localStorage.getItem(TOKEN_KEY);
+      if (!token) {
+        const returnUrl = encodeURIComponent(window.location.href.split('#')[0]);
+        window.location.href = `${PORTAL_BASE}/?returnUrl=${returnUrl}`;
+        return false;
+      }
+
+      const rawFetch = window.fetch.bind(window);
+      window.fetch = async (input, init = {}) => {
+        const headers = new Headers(init.headers || {});
+        headers.set('Authorization', `Bearer ${localStorage.getItem(TOKEN_KEY) || ''}`);
+        const response = await rawFetch(input, { ...init, headers });
+        if (response.status === 401) {
+          localStorage.removeItem(TOKEN_KEY);
+          const nextReturnUrl = encodeURIComponent(window.location.href.split('#')[0]);
+          window.location.href = `${PORTAL_BASE}/?returnUrl=${nextReturnUrl}`;
+          throw new Error('登录已过期');
+        }
+        return response;
+      };
+      return true;
+    };
 
     document.addEventListener('DOMContentLoaded', async () => {
+      if (!setupSso()) return;
+      await applyLoggedInUser();
       document.querySelectorAll('.menu-item').forEach((item) => item.addEventListener('click', () => go(item.dataset.page)));
-      document.getElementById('expDate').value = new Date().toISOString().slice(0, 10);
       await bootstrap();
     });
 
     function fmtMoney(value) {
       return `¥${Number(value || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    }
+
+    function statusText(type, value) {
+      const m = {
+        budget: { draft: '草稿', active: '执行中', closed: '已关闭' },
+        cost: { open: '待付款', partial: '部分付款', overdue: '逾期', paid: '已付款' },
+        salary: { open: '待发放', partial: '部分发放', overdue: '逾期', paid: '已发放' },
+        aiExpense: { open: '待付款', partial: '部分付款', overdue: '逾期', paid: '已付款' }
+      };
+      return (m[type] && m[type][value]) || value;
+    }
+
+    function budgetSubjectText(value) {
+      const m = {
+        consulting: '咨询', design: '设计', rnd: '研发', sales: '销售', implementation: '实施',
+        hardware: '硬件', cloud: '云资源', operations: '运营', other: '其他'
+      };
+      return m[value] || value || '其他';
+    }
+
+    function costTypeText(value) {
+      const m = {
+        hardware: '硬件', cloud: '云资源', implementation: '实施', consulting: '咨询', design: '设计',
+        travel: '差旅', marketing: '市场', rnd: '研发', operations: '运营', other: '其他'
+      };
+      return m[value] || value || '其他';
+    }
+
+    function aiServiceTypeText(value) {
+      const m = {
+        llm_api: 'LLM API',
+        inference_gpu: '推理GPU',
+        training_gpu: '训练GPU',
+        vector_db: '向量数据库',
+        asr_tts: '语音服务',
+        multimodal: '多模态',
+        other: '其他'
+      };
+      return m[value] || value || '其他';
     }
 
     async function request(path, options = {}) {
@@ -130,15 +285,27 @@
       document.querySelector(`.menu-item[data-page="${page}"]`).classList.add('active');
       document.querySelectorAll('[id^="page-"]').forEach((p) => p.classList.add('hidden'));
       document.getElementById(`page-${page}`).classList.remove('hidden');
-      document.getElementById('pageTitle').textContent = page === 'dashboard' ? '财务看板' : (page === 'transactions' ? '收付流水' : '报销申请');
+
+      const titleMap = {
+        dashboard: '财务看板',
+        transactions: '收付流水',
+        budgets: '预算执行',
+        costs: '成本台账',
+        salaries: '薪资台账',
+        'ai-expenses': 'AI费用台账'
+      };
+      document.getElementById('pageTitle').textContent = titleMap[page] || '财务看板';
 
       if (page === 'dashboard') loadDashboard();
       if (page === 'transactions') loadTransactions();
-      if (page === 'expense') loadExpenses();
+      if (page === 'budgets') loadBudgets();
+      if (page === 'costs') loadCosts();
+      if (page === 'salaries') loadSalaries();
+      if (page === 'ai-expenses') loadAiExpenses();
     }
 
     async function bootstrap() {
-      await Promise.all([loadDashboard(), loadTransactions(), loadExpenses()]);
+      await Promise.all([loadDashboard(), loadTransactions(), loadBudgets(), loadCosts(), loadSalaries(), loadAiExpenses()]);
     }
 
     async function loadDashboard() {
@@ -147,9 +314,10 @@
         const d = r.data;
         document.getElementById('sAr').textContent = fmtMoney(d.receivableOutstanding);
         document.getElementById('sAp').textContent = fmtMoney(d.payableOutstanding);
-        document.getElementById('sNet').textContent = fmtMoney(d.monthNetCashflow);
-        document.getElementById('sNet').className = d.monthNetCashflow >= 0 ? 'value money-positive' : 'value money-negative';
+        document.getElementById('sBudgetRate').textContent = `${Number(d.budgetExecutionRate || 0).toFixed(1)}%`;
         document.getElementById('sCash').textContent = fmtMoney(d.cashBalance);
+        document.getElementById('dashboardMeta').textContent =
+          `本月预算 ${fmtMoney(d.monthBudget)} / 本月成本 ${fmtMoney(d.monthCost)}（薪资 ${fmtMoney(d.monthSalary)} + AI ${fmtMoney(d.monthAiExpense)}） / 本月净现金流 ${fmtMoney(d.monthNetCashflow)} / 超预算 ${Number(d.overBudgetCount || 0)} / 待发薪 ${Number(d.pendingSalaryCount || 0)} / 待付AI ${Number(d.pendingAiExpenseCount || 0)}`;
       } catch (error) {
         alert(error.message);
       }
@@ -165,39 +333,120 @@
       }
     }
 
-    async function loadExpenses() {
+    async function loadBudgets() {
       try {
-        const r = await request('/expenses');
-        document.getElementById('expenseTable').innerHTML = r.data.slice(0, 20).map((x) => `<tr><td>${x.expense_no}</td><td>${x.department}</td><td>${x.applicant}</td><td>${fmtMoney(x.amount)}</td><td><span class="status ${x.status}">${statusText[x.status] || x.status}</span></td></tr>`).join('') || '<tr><td colspan="5">暂无报销</td></tr>';
+        const q = new URLSearchParams();
+        const period = document.getElementById('budPeriodFilter').value.trim();
+        const keyword = document.getElementById('budKeyword').value.trim();
+        if (period) q.set('period', period);
+        if (keyword) q.set('keyword', keyword);
+
+        const r = await request(`/budgets${q.toString() ? `?${q.toString()}` : ''}`);
+        document.getElementById('budgetTable').innerHTML = r.data.map((x) => `<tr>
+          <td>${x.budget_no}</td>
+          <td>${String(x.period_month || '').slice(0, 7)}</td>
+          <td>${x.department}</td>
+          <td>${budgetSubjectText(x.subject)}</td>
+          <td>${fmtMoney(x.budget_amount)}</td>
+          <td>${fmtMoney(x.used_amount)}</td>
+          <td>${fmtMoney(x.remain_amount)}</td>
+          <td>${Number(x.usage_ratio || 0).toFixed(1)}%</td>
+          <td><span class="status ${x.status}">${statusText('budget', x.status)}</span></td>
+        </tr>`).join('') || '<tr><td colspan="9">暂无预算</td></tr>';
       } catch (error) {
         alert(error.message);
       }
     }
 
-    async function submitExpense(e) {
-      e.preventDefault();
+    async function loadCosts() {
       try {
-        await request('/expenses', {
-          method: 'POST',
-          body: JSON.stringify({
-            expenseNo: document.getElementById('expNo').value.trim(),
-            department: document.getElementById('expDept').value.trim(),
-            applicant: document.getElementById('expApplicant').value.trim(),
-            category: document.getElementById('expCategory').value,
-            relatedBusiness: document.getElementById('expBiz').value.trim(),
-            amount: Number(document.getElementById('expAmount').value),
-            expenseDate: document.getElementById('expDate').value
-          })
-        });
-        document.getElementById('expNo').value = '';
-        document.getElementById('expBiz').value = '';
-        document.getElementById('expAmount').value = '';
-        await Promise.all([loadExpenses(), loadDashboard()]);
-        alert('报销单已提交');
+        const q = new URLSearchParams();
+        const status = document.getElementById('costStatusFilter').value;
+        const keyword = document.getElementById('costKeyword').value.trim();
+        if (status) q.set('status', status);
+        if (keyword) q.set('keyword', keyword);
+
+        const r = await request(`/costs${q.toString() ? `?${q.toString()}` : ''}`);
+        document.getElementById('costTable').innerHTML = r.data.map((x) => {
+          const remain = Number(x.amount) - Number(x.paid_amount);
+          return `<tr>
+            <td>${x.cost_no}</td>
+            <td>${x.department}</td>
+            <td>${costTypeText(x.cost_type)}</td>
+            <td>${x.related_business || '-'}</td>
+            <td>${x.vendor_name || '-'}</td>
+            <td>${fmtMoney(x.amount)}</td>
+            <td>${fmtMoney(x.paid_amount)}</td>
+            <td>${fmtMoney(remain)}</td>
+            <td><span class="status ${x.status}">${statusText('cost', x.status)}</span></td>
+            <td>${x.cost_date}</td>
+          </tr>`;
+        }).join('') || '<tr><td colspan="10">暂无成本单</td></tr>';
+      } catch (error) {
+        alert(error.message);
+      }
+    }
+
+    async function loadSalaries() {
+      try {
+        const q = new URLSearchParams();
+        const status = document.getElementById('salaryStatusFilter').value;
+        const period = document.getElementById('salaryPeriodFilter').value.trim();
+        const keyword = document.getElementById('salaryKeyword').value.trim();
+        if (status) q.set('status', status);
+        if (period) q.set('period', period);
+        if (keyword) q.set('keyword', keyword);
+
+        const r = await request(`/salaries${q.toString() ? `?${q.toString()}` : ''}`);
+        document.getElementById('salaryTable').innerHTML = r.data.map((x) => {
+          const remain = Number(x.amount) - Number(x.paid_amount);
+          return `<tr>
+            <td>${x.salary_no}</td>
+            <td>${String(x.period_month || '').slice(0, 7)}</td>
+            <td>${x.employee_name}</td>
+            <td>${x.department}</td>
+            <td>${fmtMoney(x.amount)}</td>
+            <td>${fmtMoney(x.paid_amount)}</td>
+            <td>${fmtMoney(remain)}</td>
+            <td><span class="status ${x.status}">${statusText('salary', x.status)}</span></td>
+            <td>${x.due_date || '-'}</td>
+          </tr>`;
+        }).join('') || '<tr><td colspan="9">暂无薪资单</td></tr>';
+      } catch (error) {
+        alert(error.message);
+      }
+    }
+
+    async function loadAiExpenses() {
+      try {
+        const q = new URLSearchParams();
+        const status = document.getElementById('aiStatusFilter').value;
+        const serviceType = document.getElementById('aiServiceTypeFilter').value;
+        const keyword = document.getElementById('aiKeyword').value.trim();
+        if (status) q.set('status', status);
+        if (serviceType) q.set('serviceType', serviceType);
+        if (keyword) q.set('keyword', keyword);
+
+        const r = await request(`/ai-expenses${q.toString() ? `?${q.toString()}` : ''}`);
+        document.getElementById('aiExpenseTable').innerHTML = r.data.map((x) => {
+          const remain = Number(x.amount) - Number(x.paid_amount);
+          return `<tr>
+            <td>${x.expense_no}</td>
+            <td>${String(x.period_month || '').slice(0, 7)}</td>
+            <td>${x.provider_name}</td>
+            <td>${aiServiceTypeText(x.service_type)}</td>
+            <td>${x.model_name || '-'}</td>
+            <td>${fmtMoney(x.amount)}</td>
+            <td>${fmtMoney(x.paid_amount)}</td>
+            <td>${fmtMoney(remain)}</td>
+            <td><span class="status ${x.status}">${statusText('aiExpense', x.status)}</span></td>
+          </tr>`;
+        }).join('') || '<tr><td colspan="9">暂无AI费用单</td></tr>';
       } catch (error) {
         alert(error.message);
       }
     }
   </script>
+  <div style="text-align:center;color:#6b7280;font-size:12px;padding:12px 16px;">Copyright © 帕罗思AI事务所 2025-2026</div>
 </body>
 </html>

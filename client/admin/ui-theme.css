@@ -305,6 +305,44 @@ body {
   flex-wrap: wrap;
 }
 
+.filters.filters-compact {
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.filters.filters-compact select,
+.filters.filters-compact input {
+  height: 36px;
+  border-radius: 10px;
+  background: #ffffff;
+  width: auto;
+  min-width: 0;
+}
+
+.filters.filters-compact select {
+  flex: 0 1 164px;
+}
+
+.filters.filters-compact input {
+  flex: 1 1 280px;
+}
+
+.filters.filters-compact .btn {
+  height: 36px;
+  padding: 0 14px;
+  flex: 0 0 auto;
+}
+
+@media (max-width: 760px) {
+  .filters.filters-compact select {
+    flex: 1 1 150px;
+  }
+
+  .filters.filters-compact input {
+    flex: 1 1 100%;
+  }
+}
+
 .table {
   width: 100%;
   border-collapse: collapse;

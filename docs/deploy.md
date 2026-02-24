@@ -34,7 +34,7 @@ INIT_DB_ON_START=0 API_PORT=3301 PORTAL_PORT=5301 ADMIN_PORT=5302 ./start-fin.sh
 ## 5. 发布检查清单
 - `GET /api/health` 返回 `{ code: 0 }`
 - `GET /api/dashboard` 可返回数据
-- Admin 页面可正常创建应收/应付/报销
+- Admin 页面可正常创建应收/应付/预算/成本/薪资/AI费用
 - `POST /api/sync/finance-auto` 执行成功
 
 ## 6. 备份建议

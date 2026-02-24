@@ -4,9 +4,15 @@ CREATE DATABASE IF NOT EXISTS `cnnbgptFIN`
 USE `cnnbgptFIN`;
 
 SET FOREIGN_KEY_CHECKS = 0;
+DROP TABLE IF EXISTS `fin_ai_payment_records`;
+DROP TABLE IF EXISTS `fin_salary_payment_records`;
 DROP TABLE IF EXISTS `fin_payment_records`;
 DROP TABLE IF EXISTS `fin_receipt_records`;
-DROP TABLE IF EXISTS `fin_expenses`;
+DROP TABLE IF EXISTS `fin_cost_payment_records`;
+DROP TABLE IF EXISTS `fin_ai_expenses`;
+DROP TABLE IF EXISTS `fin_salaries`;
+DROP TABLE IF EXISTS `fin_costs`;
+DROP TABLE IF EXISTS `fin_budgets`;
 DROP TABLE IF EXISTS `fin_payables`;
 DROP TABLE IF EXISTS `fin_receivables`;
 DROP TABLE IF EXISTS `fin_cash_accounts`;
@@ -103,26 +109,156 @@ CREATE TABLE `fin_payables` (
   CONSTRAINT `fk_fin_payable_vendor` FOREIGN KEY (`vendor_id`) REFERENCES `fin_vendors` (`id`)
 ) ENGINE=InnoDB;
 
-CREATE TABLE `fin_expenses` (
+CREATE TABLE `fin_budgets` (
   `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
-  `expense_no` VARCHAR(32) NOT NULL,
+  `budget_no` VARCHAR(32) NOT NULL,
+  `period_month` DATE NOT NULL,
   `department` VARCHAR(64) NOT NULL,
-  `applicant` VARCHAR(64) NOT NULL,
-  `category` VARCHAR(32) NOT NULL DEFAULT 'other',
-  `related_business` VARCHAR(64) DEFAULT NULL,
-  `amount` DECIMAL(12,2) NOT NULL,
-  `expense_date` DATE NOT NULL,
-  `status` VARCHAR(20) NOT NULL DEFAULT 'pending',
-  `payment_account_id` INT UNSIGNED DEFAULT NULL,
-  `reimbursed_at` DATETIME DEFAULT NULL,
+  `subject` VARCHAR(32) NOT NULL DEFAULT 'operations',
+  `budget_amount` DECIMAL(12,2) NOT NULL,
+  `status` VARCHAR(20) NOT NULL DEFAULT 'active',
+  `owner` VARCHAR(64) DEFAULT NULL,
   `notes` TEXT,
   `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_fin_expense_no` (`expense_no`),
-  KEY `idx_fin_expense_status` (`status`),
-  KEY `idx_fin_expense_date` (`expense_date`),
-  CONSTRAINT `fk_fin_expense_account` FOREIGN KEY (`payment_account_id`) REFERENCES `fin_cash_accounts` (`id`)
+  UNIQUE KEY `uk_fin_budget_no` (`budget_no`),
+  KEY `idx_fin_budget_period` (`period_month`),
+  KEY `idx_fin_budget_department` (`department`),
+  KEY `idx_fin_budget_status` (`status`)
+) ENGINE=InnoDB;
+
+CREATE TABLE `fin_costs` (
+  `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `cost_no` VARCHAR(32) NOT NULL,
+  `department` VARCHAR(64) NOT NULL,
+  `cost_type` VARCHAR(32) NOT NULL DEFAULT 'operations',
+  `related_business` VARCHAR(64) DEFAULT NULL,
+  `vendor_id` INT UNSIGNED DEFAULT NULL,
+  `amount` DECIMAL(12,2) NOT NULL,
+  `paid_amount` DECIMAL(12,2) NOT NULL DEFAULT 0,
+  `cost_date` DATE NOT NULL,
+  `due_date` DATE DEFAULT NULL,
+  `status` VARCHAR(20) NOT NULL DEFAULT 'open',
+  `owner` VARCHAR(64) DEFAULT NULL,
+  `notes` TEXT,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_fin_cost_no` (`cost_no`),
+  KEY `idx_fin_cost_date` (`cost_date`),
+  KEY `idx_fin_cost_department` (`department`),
+  KEY `idx_fin_cost_status` (`status`),
+  KEY `idx_fin_cost_vendor` (`vendor_id`),
+  CONSTRAINT `fk_fin_cost_vendor` FOREIGN KEY (`vendor_id`) REFERENCES `fin_vendors` (`id`)
+) ENGINE=InnoDB;
+
+CREATE TABLE `fin_cost_payment_records` (
+  `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `cost_id` INT UNSIGNED NOT NULL,
+  `account_id` INT UNSIGNED NOT NULL,
+  `paid_amount` DECIMAL(12,2) NOT NULL,
+  `paid_date` DATE NOT NULL,
+  `method` VARCHAR(20) NOT NULL DEFAULT 'bank_transfer',
+  `notes` VARCHAR(255) DEFAULT NULL,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_fin_cost_payment_cost` (`cost_id`),
+  KEY `idx_fin_cost_payment_account` (`account_id`),
+  KEY `idx_fin_cost_payment_date` (`paid_date`),
+  CONSTRAINT `fk_fin_cost_payment_cost` FOREIGN KEY (`cost_id`) REFERENCES `fin_costs` (`id`),
+  CONSTRAINT `fk_fin_cost_payment_account` FOREIGN KEY (`account_id`) REFERENCES `fin_cash_accounts` (`id`)
+) ENGINE=InnoDB;
+
+CREATE TABLE `fin_salaries` (
+  `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `salary_no` VARCHAR(32) NOT NULL,
+  `period_month` DATE NOT NULL,
+  `employee_id` INT UNSIGNED DEFAULT NULL,
+  `employee_name` VARCHAR(64) NOT NULL,
+  `department` VARCHAR(64) NOT NULL,
+  `position_title` VARCHAR(64) DEFAULT NULL,
+  `base_salary` DECIMAL(12,2) NOT NULL DEFAULT 0,
+  `performance_bonus` DECIMAL(12,2) NOT NULL DEFAULT 0,
+  `allowance` DECIMAL(12,2) NOT NULL DEFAULT 0,
+  `deduction` DECIMAL(12,2) NOT NULL DEFAULT 0,
+  `employer_cost` DECIMAL(12,2) NOT NULL DEFAULT 0,
+  `amount` DECIMAL(12,2) NOT NULL,
+  `paid_amount` DECIMAL(12,2) NOT NULL DEFAULT 0,
+  `due_date` DATE DEFAULT NULL,
+  `status` VARCHAR(20) NOT NULL DEFAULT 'open',
+  `owner` VARCHAR(64) DEFAULT NULL,
+  `notes` TEXT,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_fin_salary_no` (`salary_no`),
+  KEY `idx_fin_salary_period` (`period_month`),
+  KEY `idx_fin_salary_employee` (`employee_id`),
+  KEY `idx_fin_salary_department` (`department`),
+  KEY `idx_fin_salary_status` (`status`)
+) ENGINE=InnoDB;
+
+CREATE TABLE `fin_salary_payment_records` (
+  `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `salary_id` INT UNSIGNED NOT NULL,
+  `account_id` INT UNSIGNED NOT NULL,
+  `paid_amount` DECIMAL(12,2) NOT NULL,
+  `paid_date` DATE NOT NULL,
+  `method` VARCHAR(20) NOT NULL DEFAULT 'bank_transfer',
+  `notes` VARCHAR(255) DEFAULT NULL,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_fin_salary_payment_salary` (`salary_id`),
+  KEY `idx_fin_salary_payment_account` (`account_id`),
+  KEY `idx_fin_salary_payment_date` (`paid_date`),
+  CONSTRAINT `fk_fin_salary_payment_salary` FOREIGN KEY (`salary_id`) REFERENCES `fin_salaries` (`id`),
+  CONSTRAINT `fk_fin_salary_payment_account` FOREIGN KEY (`account_id`) REFERENCES `fin_cash_accounts` (`id`)
+) ENGINE=InnoDB;
+
+CREATE TABLE `fin_ai_expenses` (
+  `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `expense_no` VARCHAR(32) NOT NULL,
+  `period_month` DATE NOT NULL,
+  `provider_name` VARCHAR(64) NOT NULL,
+  `service_type` VARCHAR(32) NOT NULL DEFAULT 'llm_api',
+  `model_name` VARCHAR(64) DEFAULT NULL,
+  `usage_qty` DECIMAL(18,4) NOT NULL DEFAULT 0,
+  `usage_unit` VARCHAR(24) NOT NULL DEFAULT 'k_token',
+  `unit_price` DECIMAL(12,6) NOT NULL DEFAULT 0,
+  `amount` DECIMAL(12,2) NOT NULL,
+  `paid_amount` DECIMAL(12,2) NOT NULL DEFAULT 0,
+  `due_date` DATE DEFAULT NULL,
+  `status` VARCHAR(20) NOT NULL DEFAULT 'open',
+  `vendor_id` INT UNSIGNED DEFAULT NULL,
+  `owner` VARCHAR(64) DEFAULT NULL,
+  `notes` TEXT,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_fin_ai_expense_no` (`expense_no`),
+  KEY `idx_fin_ai_period` (`period_month`),
+  KEY `idx_fin_ai_status` (`status`),
+  KEY `idx_fin_ai_provider` (`provider_name`),
+  KEY `idx_fin_ai_vendor` (`vendor_id`),
+  CONSTRAINT `fk_fin_ai_vendor` FOREIGN KEY (`vendor_id`) REFERENCES `fin_vendors` (`id`)
+) ENGINE=InnoDB;
+
+CREATE TABLE `fin_ai_payment_records` (
+  `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `ai_expense_id` INT UNSIGNED NOT NULL,
+  `account_id` INT UNSIGNED NOT NULL,
+  `paid_amount` DECIMAL(12,2) NOT NULL,
+  `paid_date` DATE NOT NULL,
+  `method` VARCHAR(20) NOT NULL DEFAULT 'bank_transfer',
+  `notes` VARCHAR(255) DEFAULT NULL,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_fin_ai_payment_expense` (`ai_expense_id`),
+  KEY `idx_fin_ai_payment_account` (`account_id`),
+  KEY `idx_fin_ai_payment_date` (`paid_date`),
+  CONSTRAINT `fk_fin_ai_payment_expense` FOREIGN KEY (`ai_expense_id`) REFERENCES `fin_ai_expenses` (`id`),
+  CONSTRAINT `fk_fin_ai_payment_account` FOREIGN KEY (`account_id`) REFERENCES `fin_cash_accounts` (`id`)
 ) ENGINE=InnoDB;
 
 CREATE TABLE `fin_receipt_records` (
@@ -171,7 +307,9 @@ INSERT INTO `fin_vendors` (`name`, `category`, `contact_person`, `phone`) VALUES
   ('深算云服务有限公司', 'cloud', '杜经理', '13811000012'),
   ('蓝图外包设计工作室', 'design', '邓老师', '13811000013'),
   ('鹏程实施服务有限公司', 'implementation', '马工', '13811000014'),
-  ('远见企业咨询中心', 'consulting', '郭顾问', '13811000015');
+  ('远见企业咨询中心', 'consulting', '郭顾问', '13811000015'),
+  ('OpenAI API Platform', 'ai_service', 'API Billing', '13811000016'),
+  ('火山引擎方舟', 'ai_service', '方舟商务', '13811000017');
 
 INSERT INTO `fin_cash_accounts` (`account_name`, `bank_name`, `account_no`, `currency`, `balance`) VALUES
   ('工行基本户', '中国工商银行深圳高新支行', '4400-1023-8899', 'CNY', 1250000.00),
@@ -196,7 +334,37 @@ INSERT INTO `fin_payment_records` (`payable_id`, `account_id`, `paid_amount`, `p
   (1, 2, 120000.00, DATE_SUB(CURDATE(), INTERVAL 8 DAY), 'bank_transfer', '采购预付款'),
   (3, 1, 48000.00, DATE_SUB(CURDATE(), INTERVAL 6 DAY), 'bank_transfer', '设计外包结算');
 
-INSERT INTO `fin_expenses` (`expense_no`, `department`, `applicant`, `category`, `related_business`, `amount`, `expense_date`, `status`, `payment_account_id`, `reimbursed_at`, `notes`) VALUES
-  ('EX-202602-001', '咨询事业部', '朱剑', 'travel', '华东智造项目调研', 6800.00, DATE_SUB(CURDATE(), INTERVAL 9 DAY), 'reimbursed', 1, DATE_SUB(CURDATE(), INTERVAL 7 DAY), '差旅交通与住宿。'),
-  ('EX-202602-002', '研发中心', '周九', 'equipment', 'AI看片机样机测试', 12800.00, DATE_SUB(CURDATE(), INTERVAL 3 DAY), 'approved', NULL, NULL, '测试设备与配件采购。'),
-  ('EX-202602-003', '实施交付部', '孙八', 'meals', '客户上线周支持', 980.00, DATE_SUB(CURDATE(), INTERVAL 1 DAY), 'pending', NULL, NULL, '上线值守餐补。');
+INSERT INTO `fin_budgets` (`budget_no`, `period_month`, `department`, `subject`, `budget_amount`, `status`, `owner`, `notes`) VALUES
+  ('BG-202602-001', DATE_FORMAT(CURDATE(), '%Y-%m-01'), '咨询事业部', 'consulting', 160000.00, 'active', '李七', '咨询项目差旅、专家支持与交付活动预算。'),
+  ('BG-202602-002', DATE_FORMAT(CURDATE(), '%Y-%m-01'), '研发中心', 'rnd', 280000.00, 'active', '周九', '模型迭代、测试样机与算力资源预算。'),
+  ('BG-202602-003', DATE_FORMAT(CURDATE(), '%Y-%m-01'), '实施交付部', 'implementation', 190000.00, 'active', '孙八', '项目上线实施、驻场与培训预算。'),
+  ('BG-202602-004', DATE_FORMAT(CURDATE(), '%Y-%m-01'), '销售中心', 'sales', 110000.00, 'draft', '钱六', '渠道拓展与客户演示活动预算。');
+
+INSERT INTO `fin_costs` (`cost_no`, `department`, `cost_type`, `related_business`, `vendor_id`, `amount`, `paid_amount`, `cost_date`, `due_date`, `status`, `owner`, `notes`) VALUES
+  ('CT-202602-001', '研发中心', 'hardware', 'AI看片机样机迭代', 1, 86000.00, 30000.00, DATE_SUB(CURDATE(), INTERVAL 6 DAY), DATE_ADD(CURDATE(), INTERVAL 9 DAY), 'partial', '周九', '样机主板与边缘计算模组采购。'),
+  ('CT-202602-002', '咨询事业部', 'travel', '华东智造项目调研', NULL, 12500.00, 12500.00, DATE_SUB(CURDATE(), INTERVAL 10 DAY), DATE_SUB(CURDATE(), INTERVAL 2 DAY), 'paid', '朱剑', '客户访谈差旅与住宿。'),
+  ('CT-202602-003', '实施交付部', 'implementation', '南城商业上线支持', 4, 42000.00, 0.00, DATE_SUB(CURDATE(), INTERVAL 2 DAY), DATE_ADD(CURDATE(), INTERVAL 12 DAY), 'open', '孙八', '驻场实施外包费用。'),
+  ('CT-202602-004', '销售中心', 'marketing', 'AI老板机巡展活动', NULL, 18000.00, 8000.00, DATE_SUB(CURDATE(), INTERVAL 4 DAY), DATE_ADD(CURDATE(), INTERVAL 8 DAY), 'partial', '钱六', '会场与物料支出。');
+
+INSERT INTO `fin_cost_payment_records` (`cost_id`, `account_id`, `paid_amount`, `paid_date`, `method`, `notes`) VALUES
+  (1, 2, 30000.00, DATE_SUB(CURDATE(), INTERVAL 5 DAY), 'bank_transfer', '样机采购首付款'),
+  (2, 1, 12500.00, DATE_SUB(CURDATE(), INTERVAL 8 DAY), 'bank_transfer', '调研成本结清'),
+  (4, 3, 8000.00, DATE_SUB(CURDATE(), INTERVAL 3 DAY), 'online', '巡展活动预付款');
+
+INSERT INTO `fin_salaries` (`salary_no`, `period_month`, `employee_id`, `employee_name`, `department`, `position_title`, `base_salary`, `performance_bonus`, `allowance`, `deduction`, `employer_cost`, `amount`, `paid_amount`, `due_date`, `status`, `owner`, `notes`) VALUES
+  ('SA-202602-001', DATE_FORMAT(CURDATE(), '%Y-%m-01'), 4, '张三', '技术研发部', '技术经理', 28000.00, 6000.00, 1200.00, 800.00, 4500.00, 38900.00, 38900.00, DATE_ADD(DATE_FORMAT(CURDATE(), '%Y-%m-01'), INTERVAL 5 DAY), 'paid', '李七', '研发线核心骨干绩效结算。'),
+  ('SA-202602-002', DATE_FORMAT(CURDATE(), '%Y-%m-01'), 10, '周九', '市场营销部', '运营专员', 36000.00, 9000.00, 1800.00, 1200.00, 6600.00, 52200.00, 20000.00, DATE_ADD(DATE_FORMAT(CURDATE(), '%Y-%m-01'), INTERVAL 7 DAY), 'partial', '李七', '含模型平台值班补贴。'),
+  ('SA-202602-003', DATE_FORMAT(CURDATE(), '%Y-%m-01'), 9, '孙八', '市场营销部', '市场总监', 22000.00, 5000.00, 900.00, 600.00, 4100.00, 31400.00, 0.00, DATE_ADD(DATE_FORMAT(CURDATE(), '%Y-%m-01'), INTERVAL 8 DAY), 'open', '李七', '项目上线节点绩效待发放。');
+
+INSERT INTO `fin_salary_payment_records` (`salary_id`, `account_id`, `paid_amount`, `paid_date`, `method`, `notes`) VALUES
+  (1, 1, 38900.00, DATE_SUB(CURDATE(), INTERVAL 6 DAY), 'bank_transfer', '咨询线工资发放'),
+  (2, 2, 20000.00, DATE_SUB(CURDATE(), INTERVAL 4 DAY), 'bank_transfer', '研发线阶段发薪');
+
+INSERT INTO `fin_ai_expenses` (`expense_no`, `period_month`, `provider_name`, `service_type`, `model_name`, `usage_qty`, `usage_unit`, `unit_price`, `amount`, `paid_amount`, `due_date`, `status`, `vendor_id`, `owner`, `notes`) VALUES
+  ('AI-202602-001', DATE_FORMAT(CURDATE(), '%Y-%m-01'), 'OpenAI API Platform', 'llm_api', 'gpt-4.1', 18500.0000, 'k_token', 0.620000, 11470.00, 11470.00, DATE_SUB(CURDATE(), INTERVAL 2 DAY), 'paid', 6, '周九', '多模型路由主通道调用账单。'),
+  ('AI-202602-002', DATE_FORMAT(CURDATE(), '%Y-%m-01'), '火山引擎方舟', 'inference_gpu', 'doubao-pro-32k', 320.0000, 'gpu_hour', 18.000000, 5760.00, 2000.00, DATE_ADD(CURDATE(), INTERVAL 4 DAY), 'partial', 7, '周九', '推理集群弹性GPU账单。'),
+  ('AI-202602-003', DATE_FORMAT(CURDATE(), '%Y-%m-01'), 'DeepSeek 开放平台', 'llm_api', 'deepseek-v3', 24000.0000, 'k_token', 0.280000, 6720.00, 0.00, DATE_ADD(CURDATE(), INTERVAL 9 DAY), 'open', NULL, '周九', '备用模型通道与压测消耗。');
+
+INSERT INTO `fin_ai_payment_records` (`ai_expense_id`, `account_id`, `paid_amount`, `paid_date`, `method`, `notes`) VALUES
+  (1, 2, 11470.00, DATE_SUB(CURDATE(), INTERVAL 3 DAY), 'bank_transfer', '主通道API月结'),
+  (2, 1, 2000.00, DATE_SUB(CURDATE(), INTERVAL 1 DAY), 'bank_transfer', '推理GPU预付款');
